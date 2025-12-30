@@ -1,0 +1,541 @@
+<script lang="ts">
+  import { onMount, onDestroy } from "svelte";
+  import {
+    getBusState,
+    loadBuses,
+    startPolling,
+    stopPolling,
+    updateBusLocally,
+    getBusesWithActions,
+  } from "$lib/state/buses.svelte";
+  import {
+    saveBusConfig,
+    markBusArrived,
+    markBusDeparted,
+    markBusCovered,
+    markBusUncovered,
+    updateBusStatus,
+    type BusConfig,
+  } from "$lib/services/sheets-api";
+  import {
+    getCurrentUser,
+    getAccessToken,
+    requestAccessToken,
+  } from "$lib/state/auth.svelte";
+  import BusList from "./BusList.svelte";
+  import CoverModal from "./CoverModal.svelte";
+  import EditBusModal from "./EditBusModal.svelte";
+
+  interface Props {
+    sheetId: string;
+  }
+
+  let { sheetId }: Props = $props();
+
+  const busState = getBusState();
+  let activeTab = $state<"status" | "config" | "stats">("status");
+  let editingBus = $state<string | null>(null);
+  let coveringBus = $state<string | null>(null);
+  let actionError = $state<string | null>(null);
+  let successMessage = $state<string | null>(null);
+
+  // Config editing state
+  let editingConfig = $state<BusConfig[]>([]);
+  let newBusNumber = $state("");
+  let newArrivalTime = $state("");
+  let needsAuthorization = $state(false);
+  let isAuthorizing = $state(false);
+
+  onMount(async () => {
+    // Check if we have an access token
+    if (!getAccessToken()) {
+      needsAuthorization = true;
+      return;
+    }
+    await loadBuses(sheetId);
+    editingConfig = [...busState.config];
+    startPolling(sheetId, 10000);
+  });
+
+  async function handleAuthorize() {
+    isAuthorizing = true;
+    requestAccessToken();
+
+    // Wait for the token to be available (poll for up to 30 seconds)
+    const startTime = Date.now();
+    while (!getAccessToken() && Date.now() - startTime < 30000) {
+      await new Promise((resolve) => setTimeout(resolve, 500));
+    }
+
+    if (getAccessToken()) {
+      needsAuthorization = false;
+      await loadBuses(sheetId);
+      editingConfig = [...busState.config];
+      startPolling(sheetId, 10000);
+    }
+    isAuthorizing = false;
+  }
+
+  onDestroy(() => {
+    stopPolling();
+  });
+
+  // Sync config when it changes
+  $effect(() => {
+    if (busState.config.length > 0 && editingConfig.length === 0) {
+      editingConfig = [...busState.config];
+    }
+  });
+
+  async function handleArrived(busNumber: string) {
+    const user = getCurrentUser();
+    if (!user) return;
+
+    try {
+      actionError = null;
+      const time = new Date().toLocaleTimeString("en-US", {
+        hour: "2-digit",
+        minute: "2-digit",
+        hour12: false,
+      });
+      updateBusLocally(busNumber, { arrival_time: time });
+      await markBusArrived(sheetId, busNumber, user.email);
+      successMessage = `Bus ${busNumber} marked as arrived`;
+      setTimeout(() => (successMessage = null), 3000);
+    } catch (e) {
+      actionError = e instanceof Error ? e.message : "Failed to mark arrived";
+      try {
+        await loadBuses(sheetId);
+      } catch {
+        // Ignore reload errors
+      }
+    }
+  }
+
+  async function handleDeparted(busNumber: string) {
+    const user = getCurrentUser();
+    if (!user) return;
+
+    try {
+      actionError = null;
+      const time = new Date().toLocaleTimeString("en-US", {
+        hour: "2-digit",
+        minute: "2-digit",
+        hour12: false,
+      });
+      updateBusLocally(busNumber, { departure_time: time });
+      await markBusDeparted(sheetId, busNumber, user.email);
+      successMessage = `Bus ${busNumber} marked as departed`;
+      setTimeout(() => (successMessage = null), 3000);
+    } catch (e) {
+      actionError = e instanceof Error ? e.message : "Failed to mark departed";
+      try {
+        await loadBuses(sheetId);
+      } catch {
+        // Ignore reload errors
+      }
+    }
+  }
+
+  function handleCover(busNumber: string) {
+    coveringBus = busNumber;
+  }
+
+  async function handleCoverSelect(coveringBusNumber: string) {
+    const user = getCurrentUser();
+    if (!user || !coveringBus) return;
+
+    const busToUpdate = coveringBus;
+    const time = new Date().toLocaleTimeString("en-US", {
+      hour: "2-digit",
+      minute: "2-digit",
+      hour12: false,
+    });
+
+    coveringBus = null;
+
+    try {
+      actionError = null;
+      updateBusLocally(busToUpdate, { covered_by: coveringBusNumber, arrival_time: time });
+      await markBusCovered(sheetId, busToUpdate, coveringBusNumber, user.email);
+      successMessage = `Bus ${busToUpdate} marked as covered by ${coveringBusNumber}`;
+      setTimeout(() => (successMessage = null), 3000);
+    } catch (e) {
+      actionError = e instanceof Error ? e.message : "Failed to mark covered";
+      try {
+        await loadBuses(sheetId);
+      } catch {
+        // Ignore reload errors
+      }
+    }
+  }
+
+  async function handleUncovered(busNumber: string) {
+    const user = getCurrentUser();
+    if (!user) return;
+
+    try {
+      actionError = null;
+      updateBusLocally(busNumber, { is_uncovered: true });
+      await markBusUncovered(sheetId, busNumber, user.email);
+      successMessage = `Bus ${busNumber} marked as uncovered`;
+      setTimeout(() => (successMessage = null), 3000);
+    } catch (e) {
+      actionError = e instanceof Error ? e.message : "Failed to mark uncovered";
+      try {
+        await loadBuses(sheetId);
+      } catch {
+        // Ignore reload errors
+      }
+    }
+  }
+
+  function handleEdit(busNumber: string) {
+    editingBus = busNumber;
+  }
+
+  async function handleEditSave(updates: {
+    arrival_time?: string;
+    departure_time?: string;
+    covered_by?: string;
+    is_uncovered?: boolean;
+  }) {
+    const user = getCurrentUser();
+    if (!user || !editingBus) return;
+
+    try {
+      actionError = null;
+      updateBusLocally(editingBus, updates);
+      await updateBusStatus(sheetId, editingBus, updates, user.email);
+      successMessage = "Changes saved";
+      setTimeout(() => (successMessage = null), 3000);
+    } catch (e) {
+      actionError = e instanceof Error ? e.message : "Failed to save changes";
+      try {
+        await loadBuses(sheetId);
+      } catch {
+        // Ignore reload errors
+      }
+    } finally {
+      editingBus = null;
+    }
+  }
+
+  function addBus() {
+    if (!newBusNumber.trim()) return;
+
+    // Use the entered time, or fall back to the last bus's time
+    const timeToUse = newArrivalTime || defaultArrivalTime;
+
+    editingConfig = [
+      ...editingConfig,
+      {
+        bus_number: newBusNumber.trim(),
+        expected_arrival_time: timeToUse,
+      },
+    ];
+    newBusNumber = "";
+    newArrivalTime = "";
+  }
+
+  function removeBus(index: number) {
+    editingConfig = editingConfig.filter((_, i) => i !== index);
+  }
+
+  function updateBusTime(index: number, time: string) {
+    editingConfig = editingConfig.map((bus, i) =>
+      i === index ? { ...bus, expected_arrival_time: time } : bus
+    );
+  }
+
+  async function saveConfig() {
+    try {
+      actionError = null;
+      await saveBusConfig(sheetId, editingConfig);
+      await loadBuses(sheetId);
+      successMessage = "Configuration saved";
+      setTimeout(() => (successMessage = null), 3000);
+    } catch (e) {
+      actionError =
+        e instanceof Error ? e.message : "Failed to save configuration";
+    }
+  }
+
+  function applyEarlyDismissal(minutes: number) {
+    editingConfig = editingConfig.map((bus) => {
+      if (!bus.expected_arrival_time) return bus;
+
+      const [hours, mins] = bus.expected_arrival_time.split(":").map(Number);
+      const totalMins = hours * 60 + mins + minutes;
+      const newHours = Math.floor(totalMins / 60) % 24;
+      const newMins = totalMins % 60;
+
+      return {
+        ...bus,
+        expected_arrival_time: `${String(newHours).padStart(2, "0")}:${String(newMins).padStart(2, "0")}`,
+      };
+    });
+  }
+
+  let editingBusData = $derived(
+    editingBus ? busState.buses.find((b) => b.bus_number === editingBus) : null
+  );
+
+  // Default new arrival time to the last bus's time
+  let defaultArrivalTime = $derived(
+    editingConfig.length > 0
+      ? editingConfig[editingConfig.length - 1].expected_arrival_time
+      : ""
+  );
+</script>
+
+<div>
+  {#if needsAuthorization}
+    <div class="rounded-lg bg-yellow-50 p-8 text-center">
+      <p class="font-medium text-yellow-800">Authorization Required</p>
+      <p class="mt-2 text-sm text-yellow-700">
+        To access the bus tracker data, you need to authorize access to Google
+        Sheets.
+      </p>
+      <button
+        onclick={handleAuthorize}
+        disabled={isAuthorizing}
+        class="mt-4 rounded-lg bg-blue-600 px-6 py-2 font-medium text-white hover:bg-blue-700 disabled:bg-blue-300"
+      >
+        {isAuthorizing ? "Authorizing..." : "Authorize Access"}
+      </button>
+    </div>
+  {:else}
+    <!-- Tab Navigation -->
+    <div class="mb-6 border-b border-gray-200">
+      <nav class="-mb-px flex space-x-8">
+        <button
+          onclick={() => (activeTab = "status")}
+          class="border-b-2 px-1 py-4 text-sm font-medium {activeTab ===
+          'status'
+            ? 'border-blue-500 text-blue-600'
+            : 'border-transparent text-gray-500 hover:border-gray-300 hover:text-gray-700'}"
+        >
+          Today's Status
+        </button>
+        <button
+          onclick={() => (activeTab = "config")}
+          class="border-b-2 px-1 py-4 text-sm font-medium {activeTab ===
+          'config'
+            ? 'border-blue-500 text-blue-600'
+            : 'border-transparent text-gray-500 hover:border-gray-300 hover:text-gray-700'}"
+        >
+          Configure Buses
+        </button>
+        <button
+          onclick={() => (activeTab = "stats")}
+          class="border-b-2 px-1 py-4 text-sm font-medium {activeTab === 'stats'
+            ? 'border-blue-500 text-blue-600'
+            : 'border-transparent text-gray-500 hover:border-gray-300 hover:text-gray-700'}"
+        >
+          Statistics
+        </button>
+      </nav>
+    </div>
+
+    <!-- Messages -->
+    {#if actionError}
+      <div class="mb-4 rounded-lg bg-red-50 p-3 text-red-700">
+        <p class="text-sm">{actionError}</p>
+      </div>
+    {/if}
+
+    {#if successMessage}
+      <div class="mb-4 rounded-lg bg-green-50 p-3 text-green-700">
+        <p class="text-sm">{successMessage}</p>
+      </div>
+    {/if}
+
+    <!-- Status Tab -->
+    {#if activeTab === "status"}
+      {#if busState.isLoading}
+        <div class="flex items-center justify-center py-12">
+          <div
+            class="mx-auto h-12 w-12 animate-spin rounded-full border-4 border-blue-600 border-t-transparent"
+          ></div>
+        </div>
+      {:else if busState.error}
+        <div class="rounded-lg bg-red-50 p-8 text-center text-red-700">
+          <p class="font-medium">Failed to load bus data</p>
+          <p class="mt-2 text-sm">{busState.error}</p>
+          <button
+            onclick={() => loadBuses(sheetId)}
+            class="mt-4 rounded-lg bg-red-600 px-4 py-2 text-white hover:bg-red-700"
+          >
+            Retry
+          </button>
+        </div>
+      {:else if busState.buses.length === 0}
+        <div class="rounded-lg bg-gray-50 p-8 text-center text-gray-600">
+          <p>No buses configured.</p>
+          <button
+            onclick={() => (activeTab = "config")}
+            class="mt-4 rounded-lg bg-blue-600 px-4 py-2 text-white hover:bg-blue-700"
+          >
+            Configure Buses
+          </button>
+        </div>
+      {:else}
+        <BusList
+          buses={getBusesWithActions('admin')}
+          grouped={true}
+          onArrived={handleArrived}
+          onDeparted={handleDeparted}
+          onCover={handleCover}
+          onUncovered={handleUncovered}
+          onEdit={handleEdit}
+        />
+      {/if}
+    {/if}
+
+    <!-- Config Tab -->
+    {#if activeTab === "config"}
+      <div class="space-y-6">
+        <!-- Early Dismissal -->
+        <div class="rounded-lg bg-yellow-50 p-4">
+          <h3 class="font-medium text-yellow-800">Early Dismissal</h3>
+          <p class="mt-1 text-sm text-yellow-700">
+            Adjust all arrival times for early dismissal days.
+          </p>
+          <div class="mt-3 flex items-center gap-2">
+            <label for="time-adjustment" class="text-sm text-yellow-700">
+              Time adjustment (minutes):
+            </label>
+            <input
+              type="number"
+              id="time-adjustment"
+              placeholder="-60"
+              class="w-24 rounded border border-yellow-300 px-2 py-1 text-sm"
+              onchange={(e) => {
+                const mins = parseInt((e.target as HTMLInputElement).value);
+                if (!isNaN(mins)) applyEarlyDismissal(mins);
+              }}
+            />
+            <button
+              onclick={() => applyEarlyDismissal(-60)}
+              class="rounded bg-yellow-200 px-3 py-1 text-sm text-yellow-800 hover:bg-yellow-300"
+            >
+              Apply
+            </button>
+          </div>
+        </div>
+
+        <!-- Bus List -->
+        <div class="rounded-lg border border-gray-200">
+          <table class="w-full">
+            <thead class="bg-gray-50">
+              <tr>
+                <th
+                  class="px-4 py-3 text-left text-sm font-medium text-gray-700"
+                  >Bus Number</th
+                >
+                <th
+                  class="px-4 py-3 text-left text-sm font-medium text-gray-700"
+                >
+                  Expected Arrival Time
+                </th>
+                <th
+                  class="px-4 py-3 text-right text-sm font-medium text-gray-700"
+                  >Actions</th
+                >
+              </tr>
+            </thead>
+            <tbody class="divide-y divide-gray-200">
+              {#each editingConfig as bus, index}
+                <tr>
+                  <td class="px-4 py-3 text-gray-900">{bus.bus_number}</td>
+                  <td class="px-4 py-3">
+                    <input
+                      type="time"
+                      value={bus.expected_arrival_time}
+                      onchange={(e) =>
+                        updateBusTime(
+                          index,
+                          (e.target as HTMLInputElement).value
+                        )}
+                      class="rounded border border-gray-300 px-2 py-1"
+                    />
+                  </td>
+                  <td class="px-4 py-3 text-right">
+                    <button
+                      onclick={() => removeBus(index)}
+                      class="text-red-600 hover:text-red-800"
+                    >
+                      Remove
+                    </button>
+                  </td>
+                </tr>
+              {/each}
+              <tr class="bg-gray-50">
+                <td class="px-4 py-3">
+                  <input
+                    type="text"
+                    bind:value={newBusNumber}
+                    placeholder="Bus number"
+                    class="w-full rounded border border-gray-300 px-2 py-1"
+                  />
+                </td>
+                <td class="px-4 py-3">
+                  <input
+                    type="time"
+                    value={newArrivalTime || defaultArrivalTime}
+                    onchange={(e) => (newArrivalTime = (e.target as HTMLInputElement).value)}
+                    class="rounded border border-gray-300 px-2 py-1"
+                  />
+                </td>
+                <td class="px-4 py-3 text-right">
+                  <button
+                    onclick={addBus}
+                    class="rounded bg-blue-600 px-3 py-1 text-sm text-white hover:bg-blue-700"
+                  >
+                    Add Bus
+                  </button>
+                </td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+
+        <div class="flex justify-end">
+          <button
+            onclick={saveConfig}
+            class="rounded-lg bg-blue-600 px-6 py-2 font-medium text-white hover:bg-blue-700"
+          >
+            Save Configuration
+          </button>
+        </div>
+      </div>
+    {/if}
+
+    <!-- Stats Tab -->
+    {#if activeTab === "stats"}
+      <div class="rounded-lg bg-gray-50 p-8 text-center text-gray-600">
+        <p>Statistics view coming soon...</p>
+        <p class="mt-2 text-sm">
+          View arrival delays and uncovered bus reports.
+        </p>
+      </div>
+    {/if}
+  {/if}
+</div>
+
+{#if coveringBus}
+  <CoverModal
+    busNumber={coveringBus}
+    onSelect={handleCoverSelect}
+    onClose={() => (coveringBus = null)}
+  />
+{/if}
+
+{#if editingBusData}
+  <EditBusModal
+    bus={editingBusData}
+    onSave={handleEditSave}
+    onClose={() => (editingBus = null)}
+  />
+{/if}

@@ -1,0 +1,2 @@
+- this is a greenfield project. do not preserve backwards compatibility when making changes.
+- set up end-to-end acceptance testing with a playwright from the beginning of the project.

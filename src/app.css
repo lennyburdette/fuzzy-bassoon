@@ -1,0 +1,16 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* View Transitions for bus rows moving between sections */
+::view-transition-old(bus-*),
+::view-transition-new(bus-*) {
+	animation-duration: 300ms;
+	animation-timing-function: ease-in-out;
+}
+
+/* Smooth position animation for bus rows */
+::view-transition-group(bus-*) {
+	animation-duration: 300ms;
+	animation-timing-function: ease-in-out;
+}
