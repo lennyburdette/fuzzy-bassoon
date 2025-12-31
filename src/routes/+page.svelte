@@ -118,7 +118,7 @@
 <div class="flex min-h-screen flex-col bg-gray-50">
 	<!-- Header - hidden on mobile when in main app view -->
 	<header class="bg-white shadow-sm {auth.user && selectedRole && sheetId ? 'hidden sm:block' : ''}">
-		<div class="mx-auto max-w-7xl px-4 py-4 sm:px-6 lg:px-8">
+		<div class="mx-auto max-w-5xl px-4 py-4 sm:px-6 lg:px-8">
 			<div class="flex items-center justify-between">
 				<h1 class="text-2xl font-bold text-gray-900">Bus Tracker</h1>
 
@@ -149,7 +149,7 @@
 	</header>
 
 	<!-- Main content -->
-	<main class="flex-1 {auth.user && selectedRole && sheetId ? 'sm:mx-auto sm:max-w-7xl sm:px-6 sm:py-8 lg:px-8' : 'mx-auto max-w-7xl px-4 py-8 sm:px-6 lg:px-8'}">
+	<main class="flex-1 {auth.user && selectedRole && sheetId ? 'sm:mx-auto sm:max-w-5xl sm:px-6 sm:py-8 lg:px-8' : 'mx-auto max-w-5xl px-4 py-8 sm:px-6 lg:px-8'}">
 		{#if auth.isLoading}
 			<!-- Loading state -->
 			<div class="flex items-center justify-center py-12">

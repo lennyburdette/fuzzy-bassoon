@@ -6,7 +6,7 @@
 		startPolling,
 		stopPolling,
 		updateBusLocally,
-		getBusesForView
+		getBusesWithActions
 	} from '$lib/state/buses.svelte';
 	import {
 		markBusArrived,
@@ -14,8 +14,9 @@
 		markBusCovered,
 		updateBusStatus
 	} from '$lib/services/sheets-api';
+	import { getCurrentTimeEastern } from '$lib/utils/time';
 	import { getCurrentUser, getAccessToken, requestAccessToken } from '$lib/state/auth.svelte';
-	import BusRow from './BusRow.svelte';
+	import BusList from './BusList.svelte';
 	import ConnectionStatus from './ConnectionStatus.svelte';
 	import CoverModal from './CoverModal.svelte';
 	import EditBusModal from './EditBusModal.svelte';
@@ -78,11 +79,7 @@
 
 		try {
 			actionError = null;
-			const time = new Date().toLocaleTimeString('en-US', {
-				hour: '2-digit',
-				minute: '2-digit',
-				hour12: false
-			});
+			const time = getCurrentTimeEastern();
 			withViewTransition(() => updateBusLocally(busNumber, { arrival_time: time }));
 			await markBusArrived(sheetId, busNumber, user.email);
 		} catch (e) {
@@ -101,11 +98,7 @@
 
 		try {
 			actionError = null;
-			const time = new Date().toLocaleTimeString('en-US', {
-				hour: '2-digit',
-				minute: '2-digit',
-				hour12: false
-			});
+			const time = getCurrentTimeEastern();
 			withViewTransition(() => updateBusLocally(busNumber, { departure_time: time }));
 			await markBusDeparted(sheetId, busNumber, user.email);
 		} catch (e) {
@@ -127,11 +120,7 @@
 		if (!user || !coveringBus) return;
 
 		const busToUpdate = coveringBus;
-		const time = new Date().toLocaleTimeString('en-US', {
-			hour: '2-digit',
-			minute: '2-digit',
-			hour12: false
-		});
+		const time = getCurrentTimeEastern();
 
 		// Close modal before starting the transition
 		coveringBus = null;
@@ -230,64 +219,18 @@
 			<p class="mt-2 text-sm">Ask your administrator to set up the bus list.</p>
 		</div>
 	{:else}
-		<!-- Connection status indicator -->
-		<div class="flex items-center justify-end gap-2 px-4 py-2 sm:px-0">
+		<div class="mb-2 flex items-center justify-end px-4 sm:hidden">
 			<ConnectionStatus lastUpdated={busState.lastUpdated} error={busState.error} />
 		</div>
-
-		<!-- Bus list - full width rows -->
-		{@const sections = getBusesForView('monitor')}
-
-		<!-- Pending buses (no header needed, they're at the top) -->
-		{#if sections.pending.length > 0}
-			<div class="divide-y divide-gray-100">
-				{#each sections.pending as bus (bus.bus_number)}
-					<BusRow
-						{bus}
-						onArrived={handleArrived}
-						onDeparted={handleDeparted}
-						onCover={handleCover}
-						onEdit={handleEdit}
-					/>
-				{/each}
-			</div>
-		{/if}
-
-		<!-- Arrived section -->
-		{#if sections.arrived.length > 0}
-			<div class="bg-green-50 px-4 py-2 text-sm font-medium text-green-700">
-				Arrived
-			</div>
-			<div class="divide-y divide-gray-100">
-				{#each sections.arrived as bus (bus.bus_number)}
-					<BusRow
-						{bus}
-						onArrived={handleArrived}
-						onDeparted={handleDeparted}
-						onCover={handleCover}
-						onEdit={handleEdit}
-					/>
-				{/each}
-			</div>
-		{/if}
-
-		<!-- Departed section (departed and no-shows) -->
-		{#if sections.done.length > 0}
-			<div class="bg-gray-100 px-4 py-2 text-sm font-medium text-gray-500">
-				Departed
-			</div>
-			<div class="divide-y divide-gray-100">
-				{#each sections.done as bus (bus.bus_number)}
-					<BusRow
-						{bus}
-						onArrived={handleArrived}
-						onDeparted={handleDeparted}
-						onCover={handleCover}
-						onEdit={handleEdit}
-					/>
-				{/each}
-			</div>
-		{/if}
+		<BusList
+			buses={getBusesWithActions('monitor')}
+			grouped={true}
+			pendingFirst={true}
+			onArrived={handleArrived}
+			onDeparted={handleDeparted}
+			onCover={handleCover}
+			onEdit={handleEdit}
+		/>
 	{/if}
 	{/if}
 </div>
