@@ -96,9 +96,9 @@
 	};
 
 	const sectionColors: Record<BusSection, string> = {
-		pending: 'bg-yellow-50 text-yellow-700',
-		arrived: 'bg-green-50 text-green-700',
-		done: 'bg-gray-100 text-gray-500'
+		pending: 'bg-bus-200 text-bus-800',
+		arrived: 'bg-green-100 text-green-700',
+		done: 'bg-stone-100 text-stone-500'
 	};
 
 	// Find the first non-empty section for ConnectionStatus placement
@@ -122,14 +122,14 @@
 						{/if}
 					</div>
 					<!-- Desktop: text heading -->
-					<h3 class="mb-3 hidden text-lg font-semibold text-gray-700 sm:block">
+					<h3 class="mb-3 hidden text-lg font-semibold text-stone-700 sm:block">
 						{sectionLabels[section]}
-						<span class="ml-2 text-sm font-normal text-gray-500">
+						<span class="ml-2 text-sm font-normal text-stone-500">
 							({sectionBuses.length})
 						</span>
 					</h3>
 					<!-- Mobile: stacked rows, Desktop: grid of cards -->
-					<div class="divide-y divide-gray-100 sm:grid sm:grid-cols-2 sm:gap-3 sm:divide-y-0 lg:grid-cols-3">
+					<div class=" sm:grid sm:grid-cols-2 sm:gap-3 lg:grid-cols-3">
 						{#each sectionBuses as bus (bus.bus_number)}
 							<BusItem
 								{bus}
@@ -146,7 +146,7 @@
 		{/each}
 	</div>
 {:else}
-	<div class="divide-y divide-gray-100 sm:grid sm:grid-cols-2 sm:gap-3 sm:divide-y-0 lg:grid-cols-3">
+	<div class="divide-y divide-stone-100 sm:grid sm:grid-cols-2 sm:gap-3 sm:divide-y-0 lg:grid-cols-3">
 		{#each sortedBuses as bus (bus.bus_number)}
 			<BusItem
 				{bus}

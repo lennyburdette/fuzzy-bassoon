@@ -202,9 +202,9 @@
 		<div class="flex items-center justify-center py-12">
 			<div class="text-center">
 				<div
-					class="mx-auto h-12 w-12 animate-spin rounded-full border-4 border-blue-600 border-t-transparent"
+					class="mx-auto h-12 w-12 animate-spin rounded-full border-4 border-bus-600 border-t-transparent"
 				></div>
-				<p class="mt-4 text-gray-600">Loading buses...</p>
+				<p class="mt-4 text-stone-600">Loading buses...</p>
 			</div>
 		</div>
 	{:else if busState.error}
@@ -213,7 +213,7 @@
 			<p class="mt-1 text-sm">{busState.error}</p>
 		</div>
 	{:else if busState.buses.length === 0}
-		<div class="mx-4 rounded-lg bg-gray-50 p-8 text-center text-gray-600 sm:mx-0">
+		<div class="mx-4 rounded-lg bg-bus-100 p-8 text-center text-stone-600 sm:mx-0">
 			<p>No buses configured for this tracker.</p>
 			<p class="mt-2 text-sm">Ask your administrator to set up the bus list.</p>
 		</div>

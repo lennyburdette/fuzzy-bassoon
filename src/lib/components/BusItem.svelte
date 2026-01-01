@@ -17,13 +17,14 @@
 <div
 	class="
 		{bus.is_uncovered
-			? 'bg-[repeating-linear-gradient(135deg,#fef2f2,#fef2f2_10px,#fee2e2_10px,#fee2e2_20px)] border-red-200'
-			: 'bg-white border-gray-100'}
+			? 'bg-[repeating-linear-gradient(135deg,#fef2f2,#fef2f2_10px,#fee2e2_10px,#fee2e2_20px)] sm:border-red-200'
+			: 'bg-white sm:border-stone-200'}
 
-		flex items-center gap-3 border-b px-4 py-3
-		active:bg-gray-50
+		flex items-center gap-3 px-4 py-3
+		active:bg-stone-50
 
-		sm:block sm:rounded-lg sm:border sm:p-4 sm:shadow-sm sm:transition-shadow sm:hover:shadow-md
+		border-b border-stone-200 last:border-b-0
+		sm:last:border-b sm:block sm:rounded-lg sm:border sm:p-4 sm:shadow-sm sm:transition-shadow sm:hover:shadow-md
 	"
 	data-testid="bus-{bus.bus_number}"
 	data-status={bus.derivedStatus}
@@ -31,9 +32,9 @@
 >
 	<!-- Mobile: row layout -->
 	<div class="flex min-w-[3rem] flex-col sm:hidden">
-		<span class="text-2xl font-bold text-gray-900">{bus.bus_number}</span>
+		<span class="text-2xl font-bold text-stone-900">{bus.bus_number}</span>
 		{#if bus.covered_by}
-			<span class="text-xs text-yellow-600">by {bus.covered_by}</span>
+			<span class="text-xs text-bus-700">by {bus.covered_by}</span>
 		{/if}
 		{#if bus.is_uncovered}
 			<span class="text-xs font-medium text-red-600">Uncovered</span>
@@ -45,12 +46,12 @@
 		<div class="flex flex-col">
 			<div class="flex items-center gap-3">
 				{#if bus.covered_by}
-					<span class="text-2xl font-bold text-gray-400">{bus.bus_number}</span>
-					<span class="rounded bg-yellow-100 px-2 text-2xl font-bold text-yellow-600"
+					<span class="text-2xl font-bold text-stone-400">{bus.bus_number}</span>
+					<span class="rounded bg-bus-200 px-2 text-2xl font-bold text-bus-700"
 						>{bus.covered_by}</span
 					>
 				{:else}
-					<span class="text-2xl font-bold text-gray-900">{bus.bus_number}</span>
+					<span class="text-2xl font-bold text-stone-900">{bus.bus_number}</span>
 				{/if}
 			</div>
 			{#if bus.is_uncovered}
@@ -62,7 +63,7 @@
 			<button
 				type="button"
 				onclick={() => onEdit(bus.bus_number)}
-				class="rounded-md bg-gray-100 px-3 py-1.5 text-sm text-gray-600 hover:bg-gray-200"
+				class="rounded-md bg-bus-200 px-3 py-1.5 text-sm text-bus-800 hover:bg-bus-300"
 			>
 				Edit
 			</button>
@@ -70,7 +71,7 @@
 	</div>
 
 	<!-- Desktop: time display -->
-	<div class="mt-3 hidden flex-wrap items-center gap-2 text-sm text-gray-500 sm:flex">
+	<div class="mt-3 hidden flex-wrap items-center gap-2 text-sm text-stone-500 sm:flex">
 		{#if bus.departure_time}
 			<span class="text-blue-600">Departed: {formatTime12Hour(bus.departure_time)}</span>
 		{:else if bus.arrival_time}
@@ -98,7 +99,7 @@
 				<button
 					type="button"
 					onclick={() => onDeparted(bus.bus_number)}
-					class="h-10 min-w-[44px] rounded-lg border border-gray-300 bg-white px-3 text-sm font-medium text-gray-700 active:bg-gray-100 sm:min-h-[44px] sm:bg-blue-600 sm:px-4 sm:py-2 sm:text-white sm:hover:bg-blue-700 sm:active:bg-blue-800 sm:border-0"
+					class="h-10 min-w-[44px] rounded-lg border border-bus-300 bg-bus-50 px-3 text-sm font-medium text-bus-800 active:bg-bus-200 sm:min-h-[44px] sm:bg-blue-600 sm:px-4 sm:py-2 sm:text-white sm:hover:bg-blue-700 sm:active:bg-blue-800 sm:border-0"
 				>
 					Departed
 				</button>
@@ -108,7 +109,7 @@
 				<button
 					type="button"
 					onclick={() => onCover(bus.bus_number)}
-					class="h-10 min-w-[44px] rounded-lg bg-yellow-500 px-3 text-sm font-medium text-white active:bg-yellow-700 sm:min-h-[44px] sm:px-4 sm:py-2 sm:hover:bg-yellow-600"
+					class="h-10 min-w-[44px] rounded-lg bg-bus-500 px-3 text-sm font-medium text-white active:bg-bus-700 sm:min-h-[44px] sm:px-4 sm:py-2 sm:hover:bg-bus-600"
 				>
 					Cover
 				</button>
@@ -130,7 +131,7 @@
 					type="button"
 					onclick={() => onEdit(bus.bus_number)}
 					aria-label="Edit bus {bus.bus_number}"
-					class="h-10 w-10 rounded-lg bg-gray-100 text-gray-600 active:bg-gray-200 sm:hidden"
+					class="h-10 w-10 rounded-lg bg-bus-200 text-bus-700 active:bg-bus-300 sm:hidden"
 				>
 					<svg class="mx-auto h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
 						<path

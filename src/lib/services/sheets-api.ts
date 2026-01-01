@@ -16,7 +16,6 @@ import {
 import { getCurrentTimeEastern, getTodayDateEastern } from '$lib/utils/time';
 
 const SHEETS_API_BASE = 'https://sheets.googleapis.com/v4/spreadsheets';
-const DRIVE_API_BASE = 'https://www.googleapis.com/drive/v3/files';
 
 export interface BusConfig {
 	bus_number: string;

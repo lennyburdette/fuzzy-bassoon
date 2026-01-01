@@ -297,14 +297,14 @@
     </div>
   {:else}
     <!-- Tab Navigation -->
-    <div class="mb-6 border-b border-gray-200">
+    <div class="mb-6 border-b border-bus-200">
       <nav class="-mb-px flex space-x-8">
         <button
           onclick={() => (activeTab = "status")}
           class="border-b-2 px-1 py-4 text-sm font-medium {activeTab ===
           'status'
             ? 'border-blue-500 text-blue-600'
-            : 'border-transparent text-gray-500 hover:border-gray-300 hover:text-gray-700'}"
+            : 'border-transparent text-stone-500 hover:border-bus-300 hover:text-stone-700'}"
         >
           Today's Status
         </button>
@@ -313,7 +313,7 @@
           class="border-b-2 px-1 py-4 text-sm font-medium {activeTab ===
           'config'
             ? 'border-blue-500 text-blue-600'
-            : 'border-transparent text-gray-500 hover:border-gray-300 hover:text-gray-700'}"
+            : 'border-transparent text-stone-500 hover:border-bus-300 hover:text-stone-700'}"
         >
           Configure Buses
         </button>
@@ -321,7 +321,7 @@
           onclick={() => (activeTab = "stats")}
           class="border-b-2 px-1 py-4 text-sm font-medium {activeTab === 'stats'
             ? 'border-blue-500 text-blue-600'
-            : 'border-transparent text-gray-500 hover:border-gray-300 hover:text-gray-700'}"
+            : 'border-transparent text-stone-500 hover:border-bus-300 hover:text-stone-700'}"
         >
           Statistics
         </button>
@@ -346,7 +346,7 @@
       {#if busState.isLoading}
         <div class="flex items-center justify-center py-12">
           <div
-            class="mx-auto h-12 w-12 animate-spin rounded-full border-4 border-blue-600 border-t-transparent"
+            class="mx-auto h-12 w-12 animate-spin rounded-full border-4 border-bus-600 border-t-transparent"
           ></div>
         </div>
       {:else if busState.error}
@@ -361,7 +361,7 @@
           </button>
         </div>
       {:else if busState.buses.length === 0}
-        <div class="rounded-lg bg-gray-50 p-8 text-center text-gray-600">
+        <div class="rounded-lg bg-bus-50 p-8 text-center text-stone-600">
           <p>No buses configured.</p>
           <button
             onclick={() => (activeTab = "config")}
@@ -416,29 +416,29 @@
         </div>
 
         <!-- Bus List -->
-        <div class="rounded-lg border border-gray-200">
+        <div class="rounded-lg border border-bus-200">
           <table class="w-full">
-            <thead class="bg-gray-50">
+            <thead class="bg-bus-50">
               <tr>
                 <th
-                  class="px-4 py-3 text-left text-sm font-medium text-gray-700"
+                  class="px-4 py-3 text-left text-sm font-medium text-stone-700"
                   >Bus Number</th
                 >
                 <th
-                  class="px-4 py-3 text-left text-sm font-medium text-gray-700"
+                  class="px-4 py-3 text-left text-sm font-medium text-stone-700"
                 >
                   Expected Arrival Time
                 </th>
                 <th
-                  class="px-4 py-3 text-right text-sm font-medium text-gray-700"
+                  class="px-4 py-3 text-right text-sm font-medium text-stone-700"
                   >Actions</th
                 >
               </tr>
             </thead>
-            <tbody class="divide-y divide-gray-200">
+            <tbody class="divide-y divide-bus-200">
               {#each editingConfig as bus, index}
                 <tr>
-                  <td class="px-4 py-3 text-gray-900">{bus.bus_number}</td>
+                  <td class="px-4 py-3 text-stone-900">{bus.bus_number}</td>
                   <td class="px-4 py-3">
                     <input
                       type="time"
@@ -448,7 +448,7 @@
                           index,
                           (e.target as HTMLInputElement).value
                         )}
-                      class="rounded border border-gray-300 px-2 py-1"
+                      class="rounded border border-bus-300 px-2 py-1"
                     />
                   </td>
                   <td class="px-4 py-3 text-right">
@@ -461,13 +461,13 @@
                   </td>
                 </tr>
               {/each}
-              <tr class="bg-gray-50">
+              <tr class="bg-bus-50">
                 <td class="px-4 py-3">
                   <input
                     type="text"
                     bind:value={newBusNumber}
                     placeholder="Bus number"
-                    class="w-full rounded border border-gray-300 px-2 py-1"
+                    class="w-full rounded border border-bus-300 px-2 py-1"
                   />
                 </td>
                 <td class="px-4 py-3">
@@ -475,7 +475,7 @@
                     type="time"
                     value={newArrivalTime || defaultArrivalTime}
                     onchange={(e) => (newArrivalTime = (e.target as HTMLInputElement).value)}
-                    class="rounded border border-gray-300 px-2 py-1"
+                    class="rounded border border-bus-300 px-2 py-1"
                   />
                 </td>
                 <td class="px-4 py-3 text-right">

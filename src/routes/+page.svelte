@@ -115,30 +115,33 @@
 	);
 </script>
 
-<div class="flex min-h-screen flex-col bg-gray-50">
+<div class="flex min-h-screen flex-col bg-stone-50">
 	<!-- Header - hidden on mobile when in main app view -->
-	<header class="bg-white shadow-sm {auth.user && selectedRole && sheetId ? 'hidden sm:block' : ''}">
+	<header class="bg-bus-400 shadow-sm {auth.user && selectedRole && sheetId ? 'hidden sm:block' : ''}">
 		<div class="mx-auto max-w-5xl px-4 py-4 sm:px-6 lg:px-8">
 			<div class="flex items-center justify-between">
-				<h1 class="text-2xl font-bold text-gray-900">Bus Tracker</h1>
+				<h1 class="flex items-center gap-2 text-2xl font-bold text-stone-900">
+					<span class="flex h-8 w-10 items-center justify-center rounded bg-stone-900 text-base">🚌</span>
+					Busted
+				</h1>
 
 				{#if auth.user}
 					<div class="flex items-center gap-4">
 						<div class="text-right hidden sm:block">
-							<p class="text-sm font-medium text-gray-900">{auth.user.name}</p>
-							<p class="text-xs text-gray-500">{auth.user.email}</p>
+							<p class="text-sm font-medium text-stone-900">{auth.user.name}</p>
+							<p class="text-xs text-stone-700">{auth.user.email}</p>
 						</div>
 						{#if auth.user.picture}
 							<img
 								src={auth.user.picture}
 								alt={auth.user.name}
-								class="h-10 w-10 rounded-full"
+								class="h-10 w-10 rounded-full ring-2 ring-stone-900"
 							/>
 						{/if}
 						<button
 							type="button"
 							onclick={handleSignOut}
-							class="rounded-md bg-gray-100 px-3 py-2 text-sm font-medium text-gray-700 hover:bg-gray-200"
+							class="rounded-md bg-stone-900 px-3 py-2 text-sm font-medium text-bus-400 hover:bg-stone-800"
 						>
 							Sign out
 						</button>
@@ -155,17 +158,17 @@
 			<div class="flex items-center justify-center py-12">
 				<div class="text-center">
 					<div
-						class="mx-auto h-12 w-12 animate-spin rounded-full border-4 border-blue-600 border-t-transparent"
+						class="mx-auto h-12 w-12 animate-spin rounded-full border-4 border-bus-600 border-t-transparent"
 					></div>
-					<p class="mt-4 text-gray-600">Loading...</p>
+					<p class="mt-4 text-stone-600">Loading...</p>
 				</div>
 			</div>
 		{:else if !auth.user}
 			<!-- Sign in view -->
-			<div class="mx-auto max-w-md rounded-lg bg-white p-8 shadow-md">
+			<div class="mx-auto max-w-md rounded-lg bg-white p-8 shadow-md border border-stone-200">
 				<div class="text-center">
-					<h2 class="mb-2 text-xl font-semibold text-gray-900">Welcome to Bus Tracker</h2>
-					<p class="mb-6 text-gray-600">
+					<h2 class="mb-2 text-xl font-semibold text-stone-900">Welcome to Busted</h2>
+					<p class="mb-6 text-stone-600">
 						Sign in with your school Google account to continue.
 					</p>
 					<SignIn />
@@ -173,36 +176,36 @@
 			</div>
 		{:else if !selectedRole}
 			<!-- Role selection -->
-			<div class="mx-auto max-w-md rounded-lg bg-white p-8 shadow-md">
-				<h2 class="mb-6 text-center text-xl font-semibold text-gray-900">Select Your Role</h2>
+			<div class="mx-auto max-w-md rounded-lg bg-white p-8 shadow-md border border-stone-200">
+				<h2 class="mb-6 text-center text-xl font-semibold text-stone-900">Select Your Role</h2>
 				<div class="space-y-3">
 					<button
 						onclick={() => selectRole('teacher')}
-						class="block w-full rounded-lg border-2 border-gray-200 p-4 text-left hover:border-blue-500 hover:bg-blue-50"
+						class="block w-full rounded-lg border-2 border-stone-200 bg-white p-4 text-left hover:border-bus-400 hover:bg-bus-50"
 					>
-						<h3 class="font-medium text-gray-900">Teacher</h3>
-						<p class="text-sm text-gray-600">View bus arrival status</p>
+						<h3 class="font-medium text-stone-900">Teacher</h3>
+						<p class="text-sm text-stone-600">View bus arrival status</p>
 					</button>
 					<button
 						onclick={() => selectRole('monitor')}
-						class="block w-full rounded-lg border-2 border-gray-200 p-4 text-left hover:border-blue-500 hover:bg-blue-50"
+						class="block w-full rounded-lg border-2 border-stone-200 bg-white p-4 text-left hover:border-bus-400 hover:bg-bus-50"
 					>
-						<h3 class="font-medium text-gray-900">Bus Monitor</h3>
-						<p class="text-sm text-gray-600">Mark buses as arrived/departed</p>
+						<h3 class="font-medium text-stone-900">Bus Monitor</h3>
+						<p class="text-sm text-stone-600">Mark buses as arrived/departed</p>
 					</button>
 					<button
 						onclick={() => selectRole('admin')}
-						class="block w-full rounded-lg border-2 border-gray-200 p-4 text-left hover:border-blue-500 hover:bg-blue-50"
+						class="block w-full rounded-lg border-2 border-stone-200 bg-white p-4 text-left hover:border-bus-400 hover:bg-bus-50"
 					>
-						<h3 class="font-medium text-gray-900">Administrator</h3>
-						<p class="text-sm text-gray-600">Manage buses and view statistics</p>
+						<h3 class="font-medium text-stone-900">Administrator</h3>
+						<p class="text-sm text-stone-600">Manage buses and view statistics</p>
 					</button>
 				</div>
 			</div>
 		{:else if !sheetId}
 			<!-- No sheet selected - show setup or join options -->
-			<div class="mx-auto max-w-md rounded-lg bg-white p-8 shadow-md">
-				<h2 class="mb-6 text-center text-xl font-semibold text-gray-900">Get Started</h2>
+			<div class="mx-auto max-w-md rounded-lg bg-white p-8 shadow-md border border-stone-200">
+				<h2 class="mb-6 text-center text-xl font-semibold text-stone-900">Get Started</h2>
 
 				{#if createError}
 					<div class="mb-4 rounded-lg bg-red-50 p-3 text-red-700 text-sm">
@@ -217,19 +220,19 @@
 							<p class="font-medium">Tracker created!</p>
 							<p class="mt-1 text-sm">Share this URL with your staff:</p>
 						</div>
-						<div class="rounded-lg border bg-gray-50 p-3">
+						<div class="rounded-lg border border-stone-300 bg-stone-100 p-3">
 							<input
 								type="text"
 								readonly
 								value={shareableUrl}
 								data-testid="shareable-url"
-								class="w-full bg-transparent text-sm text-gray-700"
+								class="w-full bg-transparent text-sm text-stone-700"
 								onclick={(e) => (e.target as HTMLInputElement).select()}
 							/>
 						</div>
 						<button
 							onclick={handleGoToSheet}
-							class="block w-full rounded-lg bg-blue-600 px-4 py-3 text-center font-medium text-white hover:bg-blue-700"
+							class="block w-full rounded-lg bg-stone-900 px-4 py-3 text-center font-medium text-bus-400 hover:bg-stone-800"
 						>
 							Open Tracker
 						</button>
@@ -239,46 +242,46 @@
 						<button
 							onclick={handleCreateTracker}
 							disabled={isCreatingTracker}
-							class="block w-full rounded-lg bg-blue-600 px-4 py-3 text-center font-medium text-white hover:bg-blue-700 disabled:bg-blue-300"
+							class="block w-full rounded-lg bg-stone-900 px-4 py-3 text-center font-medium text-bus-400 hover:bg-stone-800 disabled:bg-stone-400"
 						>
 							{isCreatingTracker ? 'Creating...' : 'Create New Tracker'}
 						</button>
 						<div class="relative">
 							<div class="absolute inset-0 flex items-center">
-								<div class="w-full border-t border-gray-300"></div>
+								<div class="w-full border-t border-stone-300"></div>
 							</div>
 							<div class="relative flex justify-center text-sm">
-								<span class="bg-white px-2 text-gray-500">or</span>
+								<span class="bg-white px-2 text-stone-500">or</span>
 							</div>
 						</div>
 						<div>
-							<label for="sheet-id" class="block text-sm font-medium text-gray-700">
+							<label for="sheet-id" class="block text-sm font-medium text-stone-700">
 								Enter Sheet ID
 							</label>
 							<input
 								type="text"
 								id="sheet-id"
 								bind:value={enteredSheetId}
-								class="mt-1 block w-full rounded-md border border-gray-300 px-3 py-2 shadow-sm focus:border-blue-500 focus:ring-blue-500"
+								class="mt-1 block w-full rounded-md border border-stone-300 bg-white px-3 py-2 shadow-sm focus:border-bus-500 focus:ring-bus-500"
 								placeholder="Paste Google Sheet ID"
 							/>
 							<button
 								onclick={handleGoToSheet}
 								disabled={!enteredSheetId.trim()}
-								class="mt-2 w-full rounded-lg bg-gray-600 px-4 py-2 text-white hover:bg-gray-700 disabled:bg-gray-300"
+								class="mt-2 w-full rounded-lg bg-bus-700 px-4 py-2 text-white hover:bg-bus-800 disabled:bg-bus-300"
 							>
 								Open Existing Tracker
 							</button>
 						</div>
 					</div>
 				{:else}
-					<div class="text-center text-gray-600">
+					<div class="text-center text-stone-600">
 						<p class="mb-4">
-							Ask your administrator for the Bus Tracker URL for your school.
+							Ask your administrator for the Busted URL for your school.
 						</p>
 						<p class="text-sm">
 							The URL will look like:<br />
-							<code class="text-xs text-gray-500">
+							<code class="text-xs text-stone-500">
 								{$page.url.origin}/?sheet=YOUR_SHEET_ID
 							</code>
 						</p>
@@ -291,7 +294,7 @@
 						createdSheetId = null;
 						createError = null;
 					}}
-					class="mt-6 w-full text-center text-sm text-gray-500 hover:text-gray-700"
+					class="mt-6 w-full text-center text-sm text-bus-700 hover:text-bus-900"
 				>
 					← Change role
 				</button>
@@ -299,10 +302,10 @@
 		{:else}
 			<!-- Main app view based on role -->
 			<!-- Desktop: card layout. Mobile: full width -->
-			<div class="bg-white sm:rounded-lg sm:p-6 sm:shadow-md">
+			<div class="bg-white sm:rounded-lg sm:p-6 sm:shadow-md sm:border sm:border-stone-200">
 				<!-- Desktop header -->
 				<div class="mb-4 hidden items-center justify-between sm:flex">
-					<h2 class="text-lg font-semibold text-gray-900">
+					<h2 class="text-lg font-semibold text-stone-900">
 						{#if selectedRole === 'teacher'}
 							Bus Status Board
 						{:else if selectedRole === 'monitor'}
@@ -312,13 +315,13 @@
 						{/if}
 					</h2>
 					<div class="flex items-center gap-2">
-						<span class="rounded-full bg-gray-100 px-3 py-1 text-sm text-gray-600">
+						<span class="rounded-full bg-bus-100 px-3 py-1 text-sm text-bus-700">
 							{selectedRole}
 						</span>
 						<button
 							type="button"
 							onclick={() => (selectedRole = null)}
-							class="text-sm text-blue-600 hover:text-blue-800"
+							class="text-sm text-stone-500 hover:text-stone-700"
 						>
 							Change
 						</button>
@@ -338,30 +341,30 @@
 
 	<!-- Mobile footer - only shown in main app view -->
 	{#if auth.user && selectedRole && sheetId}
-		<footer class="border-t border-gray-300 bg-gray-100 px-4 py-3 shadow-inner sm:hidden">
+		<footer class="border-t border-stone-200 bg-white px-4 py-3 shadow-inner sm:hidden">
 			<div class="flex items-center justify-between">
 				<div class="flex items-center gap-2">
 					{#if auth.user.picture}
 						<img
 							src={auth.user.picture}
 							alt={auth.user.name}
-							class="h-8 w-8 rounded-full"
+							class="h-8 w-8 rounded-full ring-2 ring-bus-400"
 						/>
 					{/if}
-					<span class="text-sm text-gray-600">{auth.user.name.split(' ')[0]}</span>
+					<span class="text-sm text-stone-700">{auth.user.name.split(' ')[0]}</span>
 				</div>
 				<div class="flex items-center gap-3">
 					<button
 						type="button"
 						onclick={() => (selectedRole = null)}
-						class="rounded-md bg-gray-200 px-3 py-1.5 text-xs font-medium text-gray-600"
+						class="rounded-md bg-bus-100 px-3 py-1.5 text-xs font-medium text-bus-700"
 					>
 						{selectedRole}
 					</button>
 					<button
 						type="button"
 						onclick={handleSignOut}
-						class="text-xs text-gray-500"
+						class="text-xs text-stone-500"
 					>
 						Sign out
 					</button>

@@ -60,16 +60,16 @@
 		class="absolute bottom-0 left-0 right-0 rounded-t-2xl bg-white p-4 pb-8 shadow-xl"
 		onclick={(e) => e.stopPropagation()}
 	>
-		<div class="mx-auto mb-4 h-1 w-12 rounded-full bg-gray-300"></div>
+		<div class="mx-auto mb-4 h-1 w-12 rounded-full bg-bus-300"></div>
 
-		<h2 id="cover-modal-title" class="mb-2 text-center text-lg font-semibold text-gray-900">
+		<h2 id="cover-modal-title" class="mb-2 text-center text-lg font-semibold text-stone-900">
 			Which bus is covering {busNumber}?
 		</h2>
 
 		<!-- Display value -->
 		<div class="mb-4 flex items-center justify-center gap-2">
 			<div
-				class="flex h-14 min-w-[120px] items-center justify-center rounded-lg border-2 border-gray-200 bg-gray-50 px-4 text-2xl font-bold text-gray-900"
+				class="flex h-14 min-w-[120px] items-center justify-center rounded-lg border-2 border-bus-200 bg-bus-50 px-4 text-2xl font-bold text-stone-900"
 			>
 				{displayValue || '—'}
 			</div>
@@ -77,7 +77,7 @@
 				<button
 					type="button"
 					onclick={backspace}
-					class="flex h-14 w-14 items-center justify-center rounded-lg bg-gray-200 text-gray-700 active:bg-gray-300"
+					class="flex h-14 w-14 items-center justify-center rounded-lg bg-bus-200 text-stone-700 active:bg-bus-300"
 				>
 					<svg class="h-6 w-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
 						<path
@@ -100,7 +100,7 @@
 					class="h-12 rounded-lg px-5 text-lg font-medium transition-colors {selectedPrefix ===
 					prefix
 						? 'bg-blue-600 text-white'
-						: 'bg-gray-100 text-gray-700 active:bg-gray-200'}"
+						: 'bg-bus-100 text-stone-700 active:bg-bus-200'}"
 				>
 					{prefix}
 				</button>
@@ -113,7 +113,7 @@
 				<button
 					type="button"
 					onclick={() => appendNumber(num)}
-					class="h-14 rounded-lg bg-gray-100 text-xl font-medium text-gray-900 active:bg-gray-200"
+					class="h-14 rounded-lg bg-bus-100 text-xl font-medium text-stone-900 active:bg-bus-200"
 				>
 					{num}
 				</button>
@@ -121,14 +121,14 @@
 			<button
 				type="button"
 				onclick={clear}
-				class="h-14 rounded-lg bg-gray-100 text-sm font-medium text-gray-500 active:bg-gray-200"
+				class="h-14 rounded-lg bg-bus-100 text-sm font-medium text-stone-500 active:bg-bus-200"
 			>
 				Clear
 			</button>
 			<button
 				type="button"
 				onclick={() => appendNumber('0')}
-				class="h-14 rounded-lg bg-gray-100 text-xl font-medium text-gray-900 active:bg-gray-200"
+				class="h-14 rounded-lg bg-bus-100 text-xl font-medium text-stone-900 active:bg-bus-200"
 			>
 				0
 			</button>
@@ -136,7 +136,7 @@
 				type="button"
 				onclick={submit}
 				disabled={!canSubmit}
-				class="h-14 rounded-lg bg-green-600 text-sm font-medium text-white active:bg-green-700 disabled:bg-gray-200 disabled:text-gray-400"
+				class="h-14 rounded-lg bg-green-600 text-sm font-medium text-white active:bg-green-700 disabled:bg-bus-200 disabled:text-stone-400"
 			>
 				Done
 			</button>
@@ -146,7 +146,7 @@
 		<button
 			type="button"
 			onclick={onClose}
-			class="mt-4 w-full rounded-lg bg-gray-100 py-3 text-gray-700 active:bg-gray-200"
+			class="mt-4 w-full rounded-lg bg-bus-100 py-3 text-stone-700 active:bg-bus-200"
 		>
 			Cancel
 		</button>

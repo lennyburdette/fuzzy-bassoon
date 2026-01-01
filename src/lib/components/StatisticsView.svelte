@@ -206,16 +206,16 @@
 	<!-- Header with recalculate button -->
 	<div class="flex flex-wrap items-center justify-between gap-4">
 		<div>
-			<h2 class="text-xl font-semibold text-gray-900">Statistics</h2>
+			<h2 class="text-xl font-semibold text-stone-900">Statistics</h2>
 			{#if report}
-				<p class="mt-1 text-sm text-gray-600">
+				<p class="mt-1 text-sm text-stone-600">
 					Last generated: <span class="font-medium">{formatDate(report.generatedAt)}</span>
 				</p>
-				<p class="text-sm text-gray-500">
+				<p class="text-sm text-stone-500">
 					Data range: {report.startDate} to {report.endDate} ({report.totalDays} days)
 				</p>
 			{:else if !isLoading}
-				<p class="mt-1 text-sm text-gray-500">No report has been generated yet.</p>
+				<p class="mt-1 text-sm text-stone-500">No report has been generated yet.</p>
 			{/if}
 		</div>
 		<button
@@ -248,14 +248,14 @@
 	{#if isLoading}
 		<div class="flex items-center justify-center py-12">
 			<div
-				class="h-12 w-12 animate-spin rounded-full border-4 border-blue-600 border-t-transparent"
+				class="h-12 w-12 animate-spin rounded-full border-4 border-bus-600 border-t-transparent"
 			></div>
 		</div>
 	{:else if !report}
 		<!-- No report state -->
-		<div class="rounded-lg bg-gray-50 p-8 text-center">
-			<p class="text-gray-600">No statistics report has been generated yet.</p>
-			<p class="mt-2 text-sm text-gray-500">
+		<div class="rounded-lg bg-bus-50 p-8 text-center">
+			<p class="text-stone-600">No statistics report has been generated yet.</p>
+			<p class="mt-2 text-sm text-stone-500">
 				Click "Recalculate Report" to generate statistics from all historical data.
 			</p>
 		</div>
@@ -280,14 +280,14 @@
 		<div class="grid grid-cols-1 gap-6 lg:grid-cols-2">
 			<!-- Daily Trend Chart -->
 			{#if dailyTrendConfig}
-				<div class="rounded-lg border border-gray-200 bg-white p-4">
+				<div class="rounded-lg border border-bus-200 bg-white p-4">
 					<ChartWrapper config={dailyTrendConfig} height="250px" />
 				</div>
 			{/if}
 
 			<!-- On-Time Pie Chart -->
 			{#if onTimePieConfig}
-				<div class="rounded-lg border border-gray-200 bg-white p-4">
+				<div class="rounded-lg border border-bus-200 bg-white p-4">
 					<ChartWrapper config={onTimePieConfig} height="250px" />
 				</div>
 			{/if}
@@ -295,7 +295,7 @@
 
 		<!-- Per-Bus Delay Chart -->
 		{#if busDelayConfig}
-			<div class="rounded-lg border border-gray-200 bg-white p-4">
+			<div class="rounded-lg border border-bus-200 bg-white p-4">
 				<ChartWrapper
 					config={busDelayConfig}
 					height={`${Math.max(200, report.perBusStats.length * 40)}px`}
@@ -304,26 +304,26 @@
 		{/if}
 
 		<!-- Per-Bus Statistics Table -->
-		<div class="rounded-lg border border-gray-200">
-			<h3 class="border-b border-gray-200 bg-gray-50 px-4 py-3 font-medium text-gray-900">
+		<div class="rounded-lg border border-bus-200">
+			<h3 class="border-b border-bus-200 bg-bus-50 px-4 py-3 font-medium text-stone-900">
 				Per-Bus Performance
 			</h3>
 			<div class="overflow-x-auto">
 				<table class="w-full">
-					<thead class="bg-gray-50">
+					<thead class="bg-bus-50">
 						<tr>
-							<th class="px-4 py-3 text-left text-sm font-medium text-gray-700">Bus</th>
-							<th class="px-4 py-3 text-right text-sm font-medium text-gray-700">Avg Delay</th>
-							<th class="px-4 py-3 text-right text-sm font-medium text-gray-700">Max Delay</th>
-							<th class="px-4 py-3 text-right text-sm font-medium text-gray-700">On-Time %</th>
+							<th class="px-4 py-3 text-left text-sm font-medium text-stone-700">Bus</th>
+							<th class="px-4 py-3 text-right text-sm font-medium text-stone-700">Avg Delay</th>
+							<th class="px-4 py-3 text-right text-sm font-medium text-stone-700">Max Delay</th>
+							<th class="px-4 py-3 text-right text-sm font-medium text-stone-700">On-Time %</th>
 						</tr>
 					</thead>
-					<tbody class="divide-y divide-gray-200">
+					<tbody class="divide-y divide-bus-200">
 						{#each report.perBusStats as bus}
 							<tr>
-								<td class="px-4 py-3 font-medium text-gray-900">Bus {bus.busNumber}</td>
-								<td class="px-4 py-3 text-right text-gray-600">{bus.avgDelayMinutes} min</td>
-								<td class="px-4 py-3 text-right text-gray-600">{bus.maxDelayMinutes} min</td>
+								<td class="px-4 py-3 font-medium text-stone-900">Bus {bus.busNumber}</td>
+								<td class="px-4 py-3 text-right text-stone-600">{bus.avgDelayMinutes} min</td>
+								<td class="px-4 py-3 text-right text-stone-600">{bus.maxDelayMinutes} min</td>
 								<td class="px-4 py-3 text-right">
 									<span
 										class="inline-block rounded-full px-2 py-1 text-sm {bus.onTimePct >= 90
@@ -344,15 +344,15 @@
 
 		<!-- Uncovered Incidents -->
 		{#if report.uncoveredIncidents.length > 0}
-			<div class="rounded-lg border border-gray-200">
-				<h3 class="border-b border-gray-200 bg-gray-50 px-4 py-3 font-medium text-gray-900">
+			<div class="rounded-lg border border-bus-200">
+				<h3 class="border-b border-bus-200 bg-bus-50 px-4 py-3 font-medium text-stone-900">
 					Uncovered Incidents
 				</h3>
-				<ul class="divide-y divide-gray-200">
+				<ul class="divide-y divide-bus-200">
 					{#each report.uncoveredIncidents as incident}
 						<li class="flex items-center justify-between px-4 py-3">
-							<span class="font-medium text-gray-900">Bus {incident.busNumber}</span>
-							<span class="text-gray-600">{incident.date}</span>
+							<span class="font-medium text-stone-900">Bus {incident.busNumber}</span>
+							<span class="text-stone-600">{incident.date}</span>
 						</li>
 					{/each}
 				</ul>
@@ -361,13 +361,13 @@
 
 		<!-- Coverage Summary -->
 		{#if report.coveragePairs.length > 0}
-			<div class="rounded-lg border border-gray-200">
-				<h3 class="border-b border-gray-200 bg-gray-50 px-4 py-3 font-medium text-gray-900">
+			<div class="rounded-lg border border-bus-200">
+				<h3 class="border-b border-bus-200 bg-bus-50 px-4 py-3 font-medium text-stone-900">
 					Coverage Summary
 				</h3>
-				<ul class="divide-y divide-gray-200">
+				<ul class="divide-y divide-bus-200">
 					{#each report.coveragePairs as pair}
-						<li class="px-4 py-3 text-gray-700">
+						<li class="px-4 py-3 text-stone-700">
 							Bus <span class="font-medium">{pair.coveringBus}</span> covered Bus
 							<span class="font-medium">{pair.coveredBus}</span>:
 							<span class="text-blue-600">{pair.count} time{pair.count !== 1 ? 's' : ''}</span>

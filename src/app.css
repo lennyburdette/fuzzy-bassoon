@@ -2,6 +2,12 @@
 @tailwind components;
 @tailwind utilities;
 
+@layer base {
+	body {
+		@apply bg-stone-50 text-stone-900;
+	}
+}
+
 /* View Transitions for bus rows moving between sections */
 ::view-transition-old(bus-*),
 ::view-transition-new(bus-*) {

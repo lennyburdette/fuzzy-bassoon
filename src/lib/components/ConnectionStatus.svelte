@@ -26,8 +26,8 @@
 	{:else if isLoading}
 		<!-- Loading state - pulsing gray -->
 		<span class="relative flex h-2.5 w-2.5">
-			<span class="absolute inline-flex h-full w-full animate-ping rounded-full bg-gray-400 opacity-75"></span>
-			<span class="relative inline-flex h-2.5 w-2.5 rounded-full bg-gray-400"></span>
+			<span class="absolute inline-flex h-full w-full animate-ping rounded-full bg-bus-400 opacity-75"></span>
+			<span class="relative inline-flex h-2.5 w-2.5 rounded-full bg-bus-400"></span>
 		</span>
 	{:else if isStale()}
 		<!-- Stale state - yellow dot -->

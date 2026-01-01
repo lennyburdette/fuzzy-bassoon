@@ -35,14 +35,14 @@
 		class="w-full sm:mx-4 sm:max-w-sm rounded-t-xl sm:rounded-lg bg-white p-6 shadow-xl"
 		onclick={(e) => e.stopPropagation()}
 	>
-		<h2 id="edit-modal-title" class="mb-4 text-lg font-semibold text-gray-900">
+		<h2 id="edit-modal-title" class="mb-4 text-lg font-semibold text-stone-900">
 			Edit Bus {bus.bus_number}
 		</h2>
 
 		<div class="space-y-4">
 			<div>
 				<div class="flex items-center justify-between">
-					<label for="arrival-time" class="block text-sm font-medium text-gray-700">
+					<label for="arrival-time" class="block text-sm font-medium text-stone-700">
 						Arrival Time
 					</label>
 					{#if arrivalTime}
@@ -59,13 +59,13 @@
 					type="time"
 					id="arrival-time"
 					bind:value={arrivalTime}
-					class="mt-1 block w-full rounded-md border border-gray-300 px-3 py-2 shadow-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
+					class="mt-1 block w-full rounded-md border border-bus-300 px-3 py-2 shadow-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
 				/>
 			</div>
 
 			<div>
 				<div class="flex items-center justify-between">
-					<label for="departure-time" class="block text-sm font-medium text-gray-700">
+					<label for="departure-time" class="block text-sm font-medium text-stone-700">
 						Departure Time
 					</label>
 					{#if departureTime}
@@ -82,12 +82,12 @@
 					type="time"
 					id="departure-time"
 					bind:value={departureTime}
-					class="mt-1 block w-full rounded-md border border-gray-300 px-3 py-2 shadow-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
+					class="mt-1 block w-full rounded-md border border-bus-300 px-3 py-2 shadow-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
 				/>
 			</div>
 
 			<div>
-				<label for="covered-by" class="block text-sm font-medium text-gray-700">
+				<label for="covered-by" class="block text-sm font-medium text-stone-700">
 					Covered By (Bus Number)
 				</label>
 				<input
@@ -95,7 +95,7 @@
 					id="covered-by"
 					bind:value={coveredBy}
 					placeholder="Leave empty if not covered"
-					class="mt-1 block w-full rounded-md border border-gray-300 px-3 py-2 shadow-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
+					class="mt-1 block w-full rounded-md border border-bus-300 px-3 py-2 shadow-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
 				/>
 			</div>
 
@@ -104,9 +104,9 @@
 					type="checkbox"
 					id="is-uncovered"
 					bind:checked={isUncovered}
-					class="h-4 w-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+					class="h-4 w-4 rounded border-bus-300 text-blue-600 focus:ring-blue-500"
 				/>
-				<label for="is-uncovered" class="text-sm font-medium text-gray-700">
+				<label for="is-uncovered" class="text-sm font-medium text-stone-700">
 					Mark as Uncovered (No-show)
 				</label>
 			</div>
@@ -121,7 +121,7 @@
 			</button>
 			<button
 				onclick={onClose}
-				class="flex-1 rounded-lg bg-gray-100 px-4 py-2 text-gray-700 hover:bg-gray-200"
+				class="flex-1 rounded-lg bg-bus-100 px-4 py-2 text-stone-700 hover:bg-bus-200"
 			>
 				Cancel
 			</button>
