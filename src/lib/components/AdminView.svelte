@@ -36,7 +36,7 @@
 
   const busState = getBusState();
   let activeTab = $state<"status" | "config" | "stats">("status");
-  let editingBus = $state<string | null>(null);
+  let editingBusData = $state<typeof busState.buses[0] | null>(null);
   let coveringBus = $state<string | null>(null);
   let actionError = $state<string | null>(null);
   let successMessage = $state<string | null>(null);
@@ -181,7 +181,11 @@
   }
 
   function handleEdit(busNumber: string) {
-    editingBus = busNumber;
+    // Capture a snapshot of the bus data when opening the modal
+    const bus = busState.buses.find((b) => b.bus_number === busNumber);
+    if (bus) {
+      editingBusData = { ...bus };
+    }
   }
 
   async function handleEditSave(updates: {
@@ -191,12 +195,15 @@
     is_uncovered?: boolean;
   }) {
     const user = getCurrentUser();
-    if (!user || !editingBus) return;
+    if (!user || !editingBusData) return;
+
+    const busToUpdate = editingBusData.bus_number;
+    editingBusData = null; // Close modal before state updates
 
     try {
       actionError = null;
-      updateBusLocally(editingBus, updates);
-      await updateBusStatus(sheetId, editingBus, updates, user.email);
+      updateBusLocally(busToUpdate, updates);
+      await updateBusStatus(sheetId, busToUpdate, updates, user.email);
       successMessage = "Changes saved";
       setTimeout(() => (successMessage = null), 3000);
     } catch (e) {
@@ -206,8 +213,6 @@
       } catch {
         // Ignore reload errors
       }
-    } finally {
-      editingBus = null;
     }
   }
 
@@ -266,10 +271,6 @@
       };
     });
   }
-
-  let editingBusData = $derived(
-    editingBus ? busState.buses.find((b) => b.bus_number === editingBus) : null
-  );
 
   // Default new arrival time to the last bus's time
   let defaultArrivalTime = $derived(
@@ -521,6 +522,6 @@
   <EditBusModal
     bus={editingBusData}
     onSave={handleEditSave}
-    onClose={() => (editingBus = null)}
+    onClose={() => (editingBusData = null)}
   />
 {/if}

@@ -28,7 +28,7 @@
 
 	const busState = getBusState();
 	let coveringBus = $state<string | null>(null);
-	let editingBus = $state<string | null>(null);
+	let editingBusData = $state<typeof busState.buses[0] | null>(null);
 	let actionError = $state<string | null>(null);
 	let needsAuthorization = $state(false);
 	let isAuthorizing = $state(false);
@@ -141,7 +141,11 @@
 	}
 
 	function handleEdit(busNumber: string) {
-		editingBus = busNumber;
+		// Capture a snapshot of the bus data when opening the modal
+		const bus = busState.buses.find((b) => b.bus_number === busNumber);
+		if (bus) {
+			editingBusData = { ...bus };
+		}
 	}
 
 	async function handleEditSave(updates: {
@@ -151,9 +155,11 @@
 		is_uncovered?: boolean;
 	}) {
 		const user = getCurrentUser();
-		if (!user || !editingBus) return;
+		if (!user || !editingBusData) return;
 
-		const busToUpdate = editingBus;
+		const busToUpdate = editingBusData.bus_number;
+		editingBusData = null; // Close modal before view transition
+
 		try {
 			actionError = null;
 			withViewTransition(() => updateBusLocally(busToUpdate, updates));
@@ -165,14 +171,8 @@
 			} catch {
 				// Ignore reload errors
 			}
-		} finally {
-			editingBus = null;
 		}
 	}
-
-	let editingBusData = $derived(
-		editingBus ? busState.buses.find((b) => b.bus_number === editingBus) : null
-	);
 </script>
 
 <div>
@@ -245,6 +245,6 @@
 	<EditBusModal
 		bus={editingBusData}
 		onSave={handleEditSave}
-		onClose={() => (editingBus = null)}
+		onClose={() => (editingBusData = null)}
 	/>
 {/if}

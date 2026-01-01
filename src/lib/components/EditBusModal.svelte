@@ -14,6 +14,19 @@
 	let coveredBy = $state(bus.covered_by);
 	let isUncovered = $state(bus.is_uncovered);
 
+	function getCurrentTime(): string {
+		const now = new Date();
+		return `${now.getHours().toString().padStart(2, '0')}:${now.getMinutes().toString().padStart(2, '0')}`;
+	}
+
+	function getTodayDate(): string {
+		return new Date().toLocaleDateString('en-US', {
+			weekday: 'short',
+			month: 'short',
+			day: 'numeric'
+		});
+	}
+
 	function handleSave() {
 		onSave({
 			arrival_time: arrivalTime,
@@ -36,54 +49,64 @@
 		onclick={(e) => e.stopPropagation()}
 	>
 		<h2 id="edit-modal-title" class="mb-4 text-lg font-semibold text-stone-900">
-			Edit Bus {bus.bus_number}
+			Edit Bus {bus.bus_number} for {getTodayDate()}
 		</h2>
 
 		<div class="space-y-4">
 			<div>
-				<div class="flex items-center justify-between">
-					<label for="arrival-time" class="block text-sm font-medium text-stone-700">
-						Arrival Time
-					</label>
-					{#if arrivalTime}
-						<button
-							type="button"
-							onclick={() => (arrivalTime = '')}
-							class="text-sm text-red-600 hover:text-red-800"
-						>
-							Clear
-						</button>
-					{/if}
-				</div>
+				<label for="arrival-time" class="block text-sm font-medium text-stone-700">
+					Arrival Time
+				</label>
 				<input
 					type="time"
 					id="arrival-time"
 					bind:value={arrivalTime}
 					class="mt-1 block w-full rounded-md border border-bus-300 px-3 py-2 shadow-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
 				/>
+				<div class="mt-2 flex gap-2">
+					<button
+						type="button"
+						onclick={() => (arrivalTime = getCurrentTime())}
+						class="flex-1 rounded-md bg-bus-100 px-3 py-2 text-sm font-medium text-stone-700 hover:bg-bus-200"
+					>
+						Now
+					</button>
+					<button
+						type="button"
+						onclick={() => (arrivalTime = '')}
+						class="flex-1 rounded-md bg-bus-100 px-3 py-2 text-sm font-medium text-stone-700 hover:bg-bus-200"
+					>
+						Clear
+					</button>
+				</div>
 			</div>
 
 			<div>
-				<div class="flex items-center justify-between">
-					<label for="departure-time" class="block text-sm font-medium text-stone-700">
-						Departure Time
-					</label>
-					{#if departureTime}
-						<button
-							type="button"
-							onclick={() => (departureTime = '')}
-							class="text-sm text-red-600 hover:text-red-800"
-						>
-							Clear
-						</button>
-					{/if}
-				</div>
+				<label for="departure-time" class="block text-sm font-medium text-stone-700">
+					Departure Time
+				</label>
 				<input
 					type="time"
 					id="departure-time"
 					bind:value={departureTime}
 					class="mt-1 block w-full rounded-md border border-bus-300 px-3 py-2 shadow-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
 				/>
+				<div class="mt-2 flex gap-2">
+					<button
+						type="button"
+						onclick={() => (departureTime = getCurrentTime())}
+						class="flex-1 rounded-md bg-bus-100 px-3 py-2 text-sm font-medium text-stone-700 hover:bg-bus-200"
+					>
+						Now
+					</button>
+					<button
+						type="button"
+						onclick={() => (departureTime = '')}
+						class="flex-1 rounded-md bg-bus-100 px-3 py-2 text-sm font-medium text-stone-700 hover:bg-bus-200"
+					>
+						Clear
+					</button>
+				</div>
 			</div>
 
 			<div>
@@ -99,17 +122,28 @@
 				/>
 			</div>
 
-			<div class="flex items-center gap-2">
-				<input
-					type="checkbox"
-					id="is-uncovered"
-					bind:checked={isUncovered}
-					class="h-4 w-4 rounded border-bus-300 text-blue-600 focus:ring-blue-500"
-				/>
-				<label for="is-uncovered" class="text-sm font-medium text-stone-700">
+			<button
+				type="button"
+				onclick={() => (isUncovered = !isUncovered)}
+				class="flex w-full items-center gap-3 rounded-lg border-2 p-4 text-left transition-colors {isUncovered
+					? 'border-red-500 bg-red-50'
+					: 'border-bus-300 bg-white hover:bg-bus-50'}"
+			>
+				<div
+					class="flex h-6 w-6 shrink-0 items-center justify-center rounded border-2 {isUncovered
+						? 'border-red-500 bg-red-500 text-white'
+						: 'border-bus-400 bg-white'}"
+				>
+					{#if isUncovered}
+						<svg class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="3">
+							<path stroke-linecap="round" stroke-linejoin="round" d="M5 13l4 4L19 7" />
+						</svg>
+					{/if}
+				</div>
+				<span class="font-medium {isUncovered ? 'text-red-700' : 'text-stone-700'}">
 					Mark as Uncovered (No-show)
-				</label>
-			</div>
+				</span>
+			</button>
 		</div>
 
 		<div class="mt-6 flex gap-2">
