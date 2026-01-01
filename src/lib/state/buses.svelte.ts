@@ -11,7 +11,8 @@ import {
 	getBusStatus,
 	getBusDataBatched,
 	ensureDailySheet,
-	getTodayDate
+	getTodayDate,
+	getEffectiveArrivalTime
 } from '$lib/services/sheets-api';
 import { clearAllCaches, getRecommendedPollInterval } from '$lib/services/sheets-cache';
 
@@ -28,6 +29,8 @@ export interface BusActions {
 
 export interface BusWithStatus extends BusStatus {
 	expected_arrival_time: string;
+	effective_arrival_time: string; // May differ from expected if early dismissal override is active
+	has_override: boolean; // True if early dismissal override is active for today
 	derivedStatus: BusDerivedStatus;
 	section: BusSection;
 	actions: BusActions;
@@ -87,7 +90,11 @@ const noActions: BusActions = {
  * Merge config and status data into a single array.
  * Actions are set to defaults; use getBusesForView() to get mode-specific actions.
  */
-function mergeBusData(configData: BusConfig[], statusData: BusStatus[]): BusWithStatus[] {
+function mergeBusData(
+	configData: BusConfig[],
+	statusData: BusStatus[],
+	date: string = getTodayDate()
+): BusWithStatus[] {
 	return configData.map((c) => {
 		const status = statusData.find((s) => s.bus_number === c.bus_number) || {
 			bus_number: c.bus_number,
@@ -100,10 +107,14 @@ function mergeBusData(configData: BusConfig[], statusData: BusStatus[]): BusWith
 		};
 
 		const derivedStatus = deriveBusStatus(status);
+		const effectiveTime = getEffectiveArrivalTime(c, date);
+		const hasOverride = effectiveTime !== c.expected_arrival_time;
 
 		return {
 			...status,
 			expected_arrival_time: c.expected_arrival_time,
+			effective_arrival_time: effectiveTime,
+			has_override: hasOverride,
 			derivedStatus,
 			section: deriveBusSection(derivedStatus),
 			actions: noActions
@@ -126,12 +137,12 @@ export async function loadBuses(spreadsheetId: string, date: string = getTodayDa
 
 		if (result.sheetExists && result.status) {
 			// Sheet exists, we have both config and status
-			buses = mergeBusData(result.config, result.status);
+			buses = mergeBusData(result.config, result.status, date);
 		} else {
 			// Sheet doesn't exist - create it and fetch status
 			await ensureDailySheet(spreadsheetId, date);
 			const statusData = await getBusStatus(spreadsheetId, date);
-			buses = mergeBusData(result.config, statusData);
+			buses = mergeBusData(result.config, statusData, date);
 		}
 
 		lastUpdated = new Date();
@@ -152,7 +163,7 @@ export async function refreshBuses(
 	// Don't show loading state for refresh
 	try {
 		const statusData = await getBusStatus(spreadsheetId, date);
-		buses = mergeBusData(config, statusData);
+		buses = mergeBusData(config, statusData, date);
 		lastUpdated = new Date();
 		error = null;
 	} catch (e) {

@@ -20,6 +20,7 @@ const SHEETS_API_BASE = 'https://sheets.googleapis.com/v4/spreadsheets';
 export interface BusConfig {
 	bus_number: string;
 	expected_arrival_time: string;
+	early_dismissal_overrides?: Record<string, string>; // date (YYYY-MM-DD) -> override time (HH:MM)
 }
 
 export interface BusStatus {
@@ -278,12 +279,21 @@ async function addSheet(spreadsheetId: string, sheetTitle: string): Promise<void
  * Get the bus configuration.
  */
 export async function getBusConfig(spreadsheetId: string): Promise<BusConfig[]> {
-	const values = await getSheetValues(spreadsheetId, 'Config!A2:B100');
+	const values = await getSheetValues(spreadsheetId, 'Config!A2:C100');
 
 	return values.map((row) => ({
 		bus_number: row[0] || '',
-		expected_arrival_time: row[1] || ''
+		expected_arrival_time: row[1] || '',
+		early_dismissal_overrides: row[2] ? JSON.parse(row[2]) : {}
 	}));
+}
+
+/**
+ * Get the effective arrival time for a bus on a given date.
+ * Returns the override time if one exists, otherwise the expected arrival time.
+ */
+export function getEffectiveArrivalTime(bus: BusConfig, date: string): string {
+	return bus.early_dismissal_overrides?.[date] || bus.expected_arrival_time;
 }
 
 /**
@@ -291,11 +301,17 @@ export async function getBusConfig(spreadsheetId: string): Promise<BusConfig[]> 
  */
 export async function saveBusConfig(spreadsheetId: string, config: BusConfig[]): Promise<void> {
 	const values = [
-		['bus_number', 'expected_arrival_time'],
-		...config.map((c) => [c.bus_number, c.expected_arrival_time])
+		['bus_number', 'expected_arrival_time', 'early_dismissal_overrides'],
+		...config.map((c) => [
+			c.bus_number,
+			c.expected_arrival_time,
+			c.early_dismissal_overrides && Object.keys(c.early_dismissal_overrides).length > 0
+				? JSON.stringify(c.early_dismissal_overrides)
+				: ''
+		])
 	];
 
-	await updateSheetValues(spreadsheetId, 'Config!A1:B' + (config.length + 1), values);
+	await updateSheetValues(spreadsheetId, 'Config!A1:C' + (config.length + 1), values);
 }
 
 /**
@@ -525,13 +541,14 @@ export async function getBusDataBatched(
 
 		// Batch fetch both config and status in one call
 		const [configValues, statusValues] = await batchGetValues(spreadsheetId, [
-			'Config!A2:B100',
+			'Config!A2:C100',
 			`${date}!A2:G100`
 		]);
 
 		const config = configValues.map((row) => ({
 			bus_number: row[0] || '',
-			expected_arrival_time: row[1] || ''
+			expected_arrival_time: row[1] || '',
+			early_dismissal_overrides: row[2] ? JSON.parse(row[2]) : {}
 		}));
 
 		const status = statusValues.map(parseStatusRow);
@@ -542,11 +559,12 @@ export async function getBusDataBatched(
 		return { config, status, sheetExists: true };
 	} else {
 		// Sheet doesn't exist - just get config
-		const configValues = await getSheetValues(spreadsheetId, 'Config!A2:B100');
+		const configValues = await getSheetValues(spreadsheetId, 'Config!A2:C100');
 
 		const config = configValues.map((row) => ({
 			bus_number: row[0] || '',
-			expected_arrival_time: row[1] || ''
+			expected_arrival_time: row[1] || '',
+			early_dismissal_overrides: row[2] ? JSON.parse(row[2]) : {}
 		}));
 
 		return { config, status: null, sheetExists: false };
@@ -806,14 +824,15 @@ export async function getAllHistoricalData(spreadsheetId: string): Promise<{
 	}
 
 	// Build ranges for batch fetch: config + all daily sheets
-	const ranges = ['Config!A2:B100', ...dates.map((date) => `${date}!A2:G100`)];
+	const ranges = ['Config!A2:C100', ...dates.map((date) => `${date}!A2:G100`)];
 
 	const results = await batchGetValues(spreadsheetId, ranges);
 
 	// First result is config
 	const config = results[0].map((row) => ({
 		bus_number: row[0] || '',
-		expected_arrival_time: row[1] || ''
+		expected_arrival_time: row[1] || '',
+		early_dismissal_overrides: row[2] ? JSON.parse(row[2]) : {}
 	}));
 
 	// Remaining results are daily data

@@ -3,6 +3,7 @@ import type { Page, Route } from '@playwright/test';
 export interface BusConfig {
 	bus_number: string;
 	expected_arrival_time: string;
+	early_dismissal_overrides?: Record<string, string>; // date (YYYY-MM-DD) -> override time (HH:MM)
 }
 
 export interface BusStatus {
@@ -86,10 +87,17 @@ export async function mockSheetsApi(page: Page, initialData: MockSheetData) {
 					status: 200,
 					contentType: 'application/json',
 					body: JSON.stringify({
-						range: 'Config!A1:B100',
+						range: 'Config!A1:C100',
 						values: [
-							['bus_number', 'expected_arrival_time'],
-							...data.config.map((c) => [c.bus_number, c.expected_arrival_time])
+							['bus_number', 'expected_arrival_time', 'early_dismissal_overrides'],
+							...data.config.map((c) => [
+								c.bus_number,
+								c.expected_arrival_time,
+								c.early_dismissal_overrides &&
+								Object.keys(c.early_dismissal_overrides).length > 0
+									? JSON.stringify(c.early_dismissal_overrides)
+									: ''
+							])
 						]
 					})
 				});
@@ -99,7 +107,8 @@ export async function mockSheetsApi(page: Page, initialData: MockSheetData) {
 					// Update config (skip header row)
 					data.config = body.values.slice(1).map((row: string[]) => ({
 						bus_number: row[0],
-						expected_arrival_time: row[1]
+						expected_arrival_time: row[1],
+						early_dismissal_overrides: row[2] ? JSON.parse(row[2]) : {}
 					}));
 				}
 				await route.fulfill({
@@ -212,7 +221,14 @@ export async function mockSheetsApi(page: Page, initialData: MockSheetData) {
 				if (range.includes('Config')) {
 					return {
 						range: range,
-						values: data.config.map((c) => [c.bus_number, c.expected_arrival_time])
+						values: data.config.map((c) => [
+							c.bus_number,
+							c.expected_arrival_time,
+							c.early_dismissal_overrides &&
+							Object.keys(c.early_dismissal_overrides).length > 0
+								? JSON.stringify(c.early_dismissal_overrides)
+								: ''
+						])
 					};
 				} else {
 					const dateMatch = range.match(/(\d{4}-\d{2}-\d{2})/);

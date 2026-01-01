@@ -26,6 +26,7 @@
   import BusList from "./BusList.svelte";
   import CoverModal from "./CoverModal.svelte";
   import EditBusModal from "./EditBusModal.svelte";
+  import EarlyDismissalModal from "./EarlyDismissalModal.svelte";
   import StatisticsView from "./StatisticsView.svelte";
 
   interface Props {
@@ -47,6 +48,7 @@
   let newArrivalTime = $state("");
   let needsAuthorization = $state(false);
   let isAuthorizing = $state(false);
+  let showEarlyDismissalModal = $state(false);
 
   onMount(async () => {
     // Check if we have an access token
@@ -256,19 +258,68 @@
     }
   }
 
-  function applyEarlyDismissal(minutes: number) {
+  // Early dismissal helper functions
+  function hasOverrides(config: BusConfig[]): boolean {
+    return config.some(
+      (bus) =>
+        bus.early_dismissal_overrides &&
+        Object.keys(bus.early_dismissal_overrides).length > 0
+    );
+  }
+
+  function getUniqueOverrideDates(config: BusConfig[]): string[] {
+    const dates = new Set<string>();
+    for (const bus of config) {
+      if (bus.early_dismissal_overrides) {
+        for (const date of Object.keys(bus.early_dismissal_overrides)) {
+          dates.add(date);
+        }
+      }
+    }
+    return Array.from(dates).sort();
+  }
+
+  function getOverrideCount(config: BusConfig[], date: string): number {
+    return config.filter((bus) => bus.early_dismissal_overrides?.[date]).length;
+  }
+
+  function formatOverrideDate(dateStr: string): string {
+    return new Date(dateStr + "T12:00:00").toLocaleDateString("en-US", {
+      weekday: "short",
+      month: "short",
+      day: "numeric",
+    });
+  }
+
+  function handleEarlyDismissalSave(override: {
+    date: string;
+    time: string;
+    busNumbers: string[];
+  }) {
+    showEarlyDismissalModal = false;
+
     editingConfig = editingConfig.map((bus) => {
-      if (!bus.expected_arrival_time) return bus;
+      if (override.busNumbers.includes(bus.bus_number)) {
+        return {
+          ...bus,
+          early_dismissal_overrides: {
+            ...bus.early_dismissal_overrides,
+            [override.date]: override.time,
+          },
+        };
+      }
+      return bus;
+    });
+  }
 
-      const [hours, mins] = bus.expected_arrival_time.split(":").map(Number);
-      const totalMins = hours * 60 + mins + minutes;
-      const newHours = Math.floor(totalMins / 60) % 24;
-      const newMins = totalMins % 60;
-
-      return {
-        ...bus,
-        expected_arrival_time: `${String(newHours).padStart(2, "0")}:${String(newMins).padStart(2, "0")}`,
-      };
+  function removeOverrideForDate(date: string) {
+    editingConfig = editingConfig.map((bus) => {
+      if (bus.early_dismissal_overrides?.[date]) {
+        const overrides = { ...bus.early_dismissal_overrides };
+        delete overrides[date];
+        return { ...bus, early_dismissal_overrides: overrides };
+      }
+      return bus;
     });
   }
 
@@ -389,31 +440,47 @@
       <div class="space-y-6">
         <!-- Early Dismissal -->
         <div class="rounded-lg bg-yellow-50 p-4">
-          <h3 class="font-medium text-yellow-800">Early Dismissal</h3>
-          <p class="mt-1 text-sm text-yellow-700">
-            Adjust all arrival times for early dismissal days.
-          </p>
-          <div class="mt-3 flex items-center gap-2">
-            <label for="time-adjustment" class="text-sm text-yellow-700">
-              Time adjustment (minutes):
-            </label>
-            <input
-              type="number"
-              id="time-adjustment"
-              placeholder="-60"
-              class="w-24 rounded border border-yellow-300 px-2 py-1 text-sm"
-              onchange={(e) => {
-                const mins = parseInt((e.target as HTMLInputElement).value);
-                if (!isNaN(mins)) applyEarlyDismissal(mins);
-              }}
-            />
+          <div class="flex items-center justify-between">
+            <div>
+              <h3 class="font-medium text-yellow-800">Early Dismissal</h3>
+              <p class="mt-1 text-sm text-yellow-700">
+                Set override arrival times for specific dates.
+              </p>
+            </div>
             <button
-              onclick={() => applyEarlyDismissal(-60)}
-              class="rounded bg-yellow-200 px-3 py-1 text-sm text-yellow-800 hover:bg-yellow-300"
+              onclick={() => (showEarlyDismissalModal = true)}
+              class="rounded-lg bg-yellow-600 px-4 py-2 text-sm font-medium text-white hover:bg-yellow-700"
             >
-              Apply
+              Add Early Dismissal
             </button>
           </div>
+
+          <!-- Show existing overrides -->
+          {#if hasOverrides(editingConfig)}
+            <div class="mt-4 space-y-2">
+              <h4 class="text-sm font-medium text-yellow-800">
+                Scheduled Overrides
+              </h4>
+              {#each getUniqueOverrideDates(editingConfig) as date}
+                <div
+                  class="flex items-center justify-between rounded bg-yellow-100 px-3 py-2"
+                >
+                  <span class="text-sm text-yellow-900">
+                    {formatOverrideDate(date)}: {getOverrideCount(
+                      editingConfig,
+                      date
+                    )} bus(es) affected
+                  </span>
+                  <button
+                    onclick={() => removeOverrideForDate(date)}
+                    class="text-sm text-red-600 hover:text-red-800"
+                  >
+                    Remove
+                  </button>
+                </div>
+              {/each}
+            </div>
+          {/if}
         </div>
 
         <!-- Bus List -->
@@ -523,5 +590,13 @@
     bus={editingBusData}
     onSave={handleEditSave}
     onClose={() => (editingBusData = null)}
+  />
+{/if}
+
+{#if showEarlyDismissalModal}
+  <EarlyDismissalModal
+    buses={editingConfig}
+    onSave={handleEarlyDismissalSave}
+    onClose={() => (showEarlyDismissalModal = false)}
   />
 {/if}

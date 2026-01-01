@@ -86,7 +86,7 @@ test.describe('Admin Setup', () => {
 		await expect(page.getByText(/saved/i)).toBeVisible();
 	});
 
-	test('admin can change expected arrival times for early dismissal days', async ({ page }) => {
+	test('admin can add early dismissal for a specific date', async ({ page }) => {
 		const sheetData = {
 			...newSchoolSetup,
 			config: [
@@ -101,14 +101,133 @@ test.describe('Admin Setup', () => {
 			view: 'admin'
 		});
 
-		// Find early dismissal option
-		await page.getByRole('button', { name: /early dismissal/i }).click();
+		// Click Add Early Dismissal button
+		await page.getByRole('button', { name: /add early dismissal/i }).click();
 
-		// Should be able to adjust all times
-		await page.getByLabel(/time adjustment/i).fill('-60'); // 1 hour earlier
-		await page.getByRole('button', { name: /apply/i }).click();
+		// Modal should open
+		await expect(page.getByRole('dialog')).toBeVisible();
+		await expect(page.getByText('Add Early Dismissal')).toBeVisible();
 
-		// Bus 1 should now show 14:00
-		await expect(page.getByRole('row', { name: /1/i })).toContainText('14:00');
+		// Fill in date and time
+		await page.getByLabel(/date/i).fill('2025-02-15');
+		await page.getByLabel(/new arrival time/i).fill('14:00');
+
+		// All buses should be selected by default
+		await expect(page.getByText(/2 of 2/)).toBeVisible();
+
+		// Click Add Early Dismissal in the modal
+		await page.getByRole('button', { name: /add early dismissal/i }).last().click();
+
+		// Modal should close
+		await expect(page.getByRole('dialog')).not.toBeVisible();
+
+		// Should show scheduled override
+		await expect(page.getByText(/scheduled overrides/i)).toBeVisible();
+		await expect(page.getByText(/Feb 15/)).toBeVisible();
+		await expect(page.getByText(/2 bus\(es\) affected/)).toBeVisible();
+	});
+
+	test('admin can select specific buses for early dismissal', async ({ page }) => {
+		const sheetData = {
+			...newSchoolSetup,
+			config: [
+				{ bus_number: '1', expected_arrival_time: '15:00' },
+				{ bus_number: '2', expected_arrival_time: '15:05' },
+				{ bus_number: '3', expected_arrival_time: '15:10' }
+			]
+		};
+		await signInAsAdmin(page, {
+			email: 'admin@lincoln.edu',
+			name: 'School Admin',
+			sheetData,
+			view: 'admin'
+		});
+
+		await page.getByRole('button', { name: /add early dismissal/i }).click();
+
+		// All buses should be selected by default
+		await expect(page.getByText(/3 of 3/)).toBeVisible();
+
+		// Click None to deselect all
+		await page.getByRole('button', { name: /none/i }).click();
+		await expect(page.getByText(/0 of 3/)).toBeVisible();
+
+		// Select only bus 1
+		await page.getByLabel(/Bus 1/).click();
+		await expect(page.getByText(/1 of 3/)).toBeVisible();
+
+		// Fill in date and time
+		await page.getByLabel(/date/i).fill('2025-03-01');
+		await page.getByLabel(/new arrival time/i).fill('13:30');
+
+		// Save
+		await page.getByRole('button', { name: /add early dismissal/i }).last().click();
+
+		// Should show 1 bus affected
+		await expect(page.getByText(/1 bus\(es\) affected/)).toBeVisible();
+	});
+
+	test('admin can remove an early dismissal override', async ({ page }) => {
+		const sheetData = {
+			...newSchoolSetup,
+			config: [
+				{
+					bus_number: '1',
+					expected_arrival_time: '15:00',
+					early_dismissal_overrides: { '2025-02-15': '14:00' }
+				},
+				{
+					bus_number: '2',
+					expected_arrival_time: '15:05',
+					early_dismissal_overrides: { '2025-02-15': '14:00' }
+				}
+			]
+		};
+		await signInAsAdmin(page, {
+			email: 'admin@lincoln.edu',
+			name: 'School Admin',
+			sheetData,
+			view: 'admin'
+		});
+
+		// Should show existing override
+		await expect(page.getByText(/Feb 15/)).toBeVisible();
+
+		// Click Remove
+		await page.getByRole('button', { name: /remove/i }).click();
+
+		// Override should be removed
+		await expect(page.getByText(/Feb 15/)).not.toBeVisible();
+		await expect(page.getByText(/scheduled overrides/i)).not.toBeVisible();
+	});
+
+	test('early dismissal save button is disabled without required fields', async ({ page }) => {
+		const sheetData = {
+			...newSchoolSetup,
+			config: [{ bus_number: '1', expected_arrival_time: '15:00' }]
+		};
+		await signInAsAdmin(page, {
+			email: 'admin@lincoln.edu',
+			name: 'School Admin',
+			sheetData,
+			view: 'admin'
+		});
+
+		await page.getByRole('button', { name: /add early dismissal/i }).click();
+
+		// Deselect all buses
+		await page.getByRole('button', { name: /none/i }).click();
+
+		// Save button should be disabled (no time entered, no buses selected)
+		const saveButton = page.getByRole('dialog').getByRole('button', { name: /add early dismissal/i });
+		await expect(saveButton).toBeDisabled();
+
+		// Select a bus but still no time
+		await page.getByLabel(/Bus 1/).click();
+		await expect(saveButton).toBeDisabled();
+
+		// Add time, should now be enabled
+		await page.getByLabel(/new arrival time/i).fill('14:00');
+		await expect(saveButton).toBeEnabled();
 	});
 });

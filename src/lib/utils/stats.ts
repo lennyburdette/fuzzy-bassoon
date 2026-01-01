@@ -3,6 +3,7 @@
  */
 
 import type { BusConfig, BusStatus, StatisticsReport } from '$lib/services/sheets-api';
+import { getEffectiveArrivalTime } from '$lib/services/sheets-api';
 
 export interface CalculationInput {
 	config: BusConfig[];
@@ -78,9 +79,9 @@ export function calculateStatistics(input: CalculationInput): StatisticsReport {
 		};
 	}
 
-	// Build expected times lookup from config
-	const expectedTimes = new Map<string, string>();
-	config.forEach((c) => expectedTimes.set(c.bus_number, c.expected_arrival_time));
+	// Build config lookup for expected times (with date-specific overrides)
+	const configMap = new Map<string, BusConfig>();
+	config.forEach((c) => configMap.set(c.bus_number, c));
 
 	// Per-bus accumulators
 	const busDelays = new Map<string, number[]>();
@@ -104,7 +105,9 @@ export function calculateStatistics(input: CalculationInput): StatisticsReport {
 		let dayUncovered = 0;
 
 		for (const bus of dayData) {
-			const expected = expectedTimes.get(bus.bus_number);
+			const busConfig = configMap.get(bus.bus_number);
+			// Get the effective expected time for this date (respects early dismissal overrides)
+			const expected = busConfig ? getEffectiveArrivalTime(busConfig, date) : undefined;
 
 			if (bus.is_uncovered) {
 				uncoveredIncidents.push({ date, busNumber: bus.bus_number });
