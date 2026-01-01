@@ -25,14 +25,14 @@
 </script>
 
 <div
-	class="fixed inset-0 z-50 flex items-center justify-center bg-black/50"
+	class="fixed inset-0 z-50 flex items-end sm:items-center sm:justify-center bg-black/50"
 	onclick={onClose}
 	role="dialog"
 	aria-modal="true"
 	aria-labelledby="edit-modal-title"
 >
 	<div
-		class="mx-4 w-full max-w-sm rounded-lg bg-white p-6 shadow-xl"
+		class="w-full sm:mx-4 sm:max-w-sm rounded-t-xl sm:rounded-lg bg-white p-6 shadow-xl"
 		onclick={(e) => e.stopPropagation()}
 	>
 		<h2 id="edit-modal-title" class="mb-4 text-lg font-semibold text-gray-900">
@@ -41,9 +41,20 @@
 
 		<div class="space-y-4">
 			<div>
-				<label for="arrival-time" class="block text-sm font-medium text-gray-700">
-					Arrival Time
-				</label>
+				<div class="flex items-center justify-between">
+					<label for="arrival-time" class="block text-sm font-medium text-gray-700">
+						Arrival Time
+					</label>
+					{#if arrivalTime}
+						<button
+							type="button"
+							onclick={() => (arrivalTime = '')}
+							class="text-sm text-red-600 hover:text-red-800"
+						>
+							Clear
+						</button>
+					{/if}
+				</div>
 				<input
 					type="time"
 					id="arrival-time"
@@ -53,9 +64,20 @@
 			</div>
 
 			<div>
-				<label for="departure-time" class="block text-sm font-medium text-gray-700">
-					Departure Time
-				</label>
+				<div class="flex items-center justify-between">
+					<label for="departure-time" class="block text-sm font-medium text-gray-700">
+						Departure Time
+					</label>
+					{#if departureTime}
+						<button
+							type="button"
+							onclick={() => (departureTime = '')}
+							class="text-sm text-red-600 hover:text-red-800"
+						>
+							Clear
+						</button>
+					{/if}
+				</div>
 				<input
 					type="time"
 					id="departure-time"

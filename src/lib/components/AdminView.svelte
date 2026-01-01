@@ -17,6 +17,7 @@
     updateBusStatus,
     type BusConfig,
   } from "$lib/services/sheets-api";
+  import { getCurrentTimeEastern } from "$lib/utils/time";
   import {
     getCurrentUser,
     getAccessToken,
@@ -25,6 +26,7 @@
   import BusList from "./BusList.svelte";
   import CoverModal from "./CoverModal.svelte";
   import EditBusModal from "./EditBusModal.svelte";
+  import StatisticsView from "./StatisticsView.svelte";
 
   interface Props {
     sheetId: string;
@@ -93,11 +95,7 @@
 
     try {
       actionError = null;
-      const time = new Date().toLocaleTimeString("en-US", {
-        hour: "2-digit",
-        minute: "2-digit",
-        hour12: false,
-      });
+      const time = getCurrentTimeEastern();
       updateBusLocally(busNumber, { arrival_time: time });
       await markBusArrived(sheetId, busNumber, user.email);
       successMessage = `Bus ${busNumber} marked as arrived`;
@@ -118,11 +116,7 @@
 
     try {
       actionError = null;
-      const time = new Date().toLocaleTimeString("en-US", {
-        hour: "2-digit",
-        minute: "2-digit",
-        hour12: false,
-      });
+      const time = getCurrentTimeEastern();
       updateBusLocally(busNumber, { departure_time: time });
       await markBusDeparted(sheetId, busNumber, user.email);
       successMessage = `Bus ${busNumber} marked as departed`;
@@ -146,11 +140,7 @@
     if (!user || !coveringBus) return;
 
     const busToUpdate = coveringBus;
-    const time = new Date().toLocaleTimeString("en-US", {
-      hour: "2-digit",
-      minute: "2-digit",
-      hour12: false,
-    });
+    const time = getCurrentTimeEastern();
 
     coveringBus = null;
 
@@ -514,12 +504,7 @@
 
     <!-- Stats Tab -->
     {#if activeTab === "stats"}
-      <div class="rounded-lg bg-gray-50 p-8 text-center text-gray-600">
-        <p>Statistics view coming soon...</p>
-        <p class="mt-2 text-sm">
-          View arrival delays and uncovered bus reports.
-        </p>
-      </div>
+      <StatisticsView {sheetId} />
     {/if}
   {/if}
 </div>

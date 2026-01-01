@@ -1,4 +1,6 @@
 <script lang="ts">
+	import { formatTimeForDisplay } from '$lib/utils/time';
+
 	interface Props {
 		lastUpdated: Date | null;
 		isLoading?: boolean;
@@ -14,7 +16,7 @@
 	});
 </script>
 
-<div class="flex items-center gap-1.5" title={lastUpdated ? `Last updated: ${lastUpdated.toLocaleTimeString()}` : 'Not connected'}>
+<div class="flex items-center gap-1.5" title={lastUpdated ? `Last updated: ${formatTimeForDisplay(lastUpdated)}` : 'Not connected'}>
 	{#if error}
 		<!-- Error state - red dot -->
 		<span class="relative flex h-2.5 w-2.5">

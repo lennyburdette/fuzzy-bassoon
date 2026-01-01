@@ -1,11 +1,14 @@
 <script lang="ts">
 	import type { BusWithStatus, BusSection } from '$lib/state/buses.svelte';
 	import BusItem from './BusItem.svelte';
+	import ConnectionStatus from './ConnectionStatus.svelte';
 
 	interface Props {
 		buses: BusWithStatus[];
 		grouped?: boolean;
 		pendingFirst?: boolean;
+		lastUpdated?: Date | null;
+		error?: string | null;
 		onArrived?: (busNumber: string) => void;
 		onDeparted?: (busNumber: string) => void;
 		onCover?: (busNumber: string) => void;
@@ -17,6 +20,8 @@
 		buses,
 		grouped = false,
 		pendingFirst = false,
+		lastUpdated = null,
+		error = null,
 		onArrived,
 		onDeparted,
 		onCover,
@@ -95,6 +100,12 @@
 		arrived: 'bg-green-50 text-green-700',
 		done: 'bg-gray-100 text-gray-500'
 	};
+
+	// Find the first non-empty section for ConnectionStatus placement
+	let firstSection = $derived.by(() => {
+		if (!groupedBuses) return null;
+		return sectionOrder.find((s) => groupedBuses[s].length > 0) ?? null;
+	});
 </script>
 
 {#if grouped && groupedBuses}
@@ -104,8 +115,11 @@
 			{#if sectionBuses.length > 0}
 				<section data-testid="{section}-section">
 					<!-- Mobile: colored bar header -->
-					<div class="px-4 py-2 text-sm font-medium {sectionColors[section]} sm:hidden">
-						{sectionLabels[section]} ({sectionBuses.length})
+					<div class="flex items-center justify-between px-4 py-2 text-sm font-medium {sectionColors[section]} sm:hidden">
+						<span>{sectionLabels[section]} ({sectionBuses.length})</span>
+						{#if section === firstSection && lastUpdated !== undefined}
+							<ConnectionStatus {lastUpdated} {error} />
+						{/if}
 					</div>
 					<!-- Desktop: text heading -->
 					<h3 class="mb-3 hidden text-lg font-semibold text-gray-700 sm:block">

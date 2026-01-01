@@ -4,6 +4,16 @@
  */
 
 import { getAccessToken } from '$lib/state/auth.svelte';
+import {
+	isSheetCached,
+	cacheSheetExists,
+	getCachedRowIndex,
+	updateRowIndexCache,
+	deduplicateRequest,
+	recordRateLimitHit,
+	recordSuccessfulCall
+} from './sheets-cache';
+import { getCurrentTimeEastern, getTodayDateEastern } from '$lib/utils/time';
 
 const SHEETS_API_BASE = 'https://sheets.googleapis.com/v4/spreadsheets';
 const DRIVE_API_BASE = 'https://www.googleapis.com/drive/v3/files';
@@ -21,6 +31,37 @@ export interface BusStatus {
 	departure_time: string;
 	last_modified_by: string;
 	last_modified_at: string;
+}
+
+export interface StatisticsReport {
+	generatedAt: string;
+	startDate: string;
+	endDate: string;
+	totalDays: number;
+	totalBusArrivals: number;
+	overallOnTimePct: number;
+	perBusStats: {
+		busNumber: string;
+		avgDelayMinutes: number;
+		maxDelayMinutes: number;
+		onTimePct: number;
+	}[];
+	uncoveredIncidents: {
+		date: string;
+		busNumber: string;
+	}[];
+	coveragePairs: {
+		coveringBus: string;
+		coveredBus: string;
+		count: number;
+	}[];
+	dailyCounts: {
+		date: string;
+		total: number;
+		onTime: number;
+		late: number;
+		uncovered: number;
+	}[];
 }
 
 export type BusDerivedStatus = 'pending' | 'arrived' | 'departed' | 'uncovered';
@@ -48,6 +89,25 @@ function getAuthHeaders(): HeadersInit {
 		Authorization: `Bearer ${token}`,
 		'Content-Type': 'application/json'
 	};
+}
+
+/**
+ * Wrapper for fetch that tracks rate limits.
+ * Records 429 errors for adaptive throttling.
+ */
+async function fetchWithRateLimitTracking(
+	url: string,
+	options?: RequestInit
+): Promise<Response> {
+	const response = await fetch(url, options);
+
+	if (response.status === 429) {
+		recordRateLimitHit();
+	} else if (response.ok) {
+		recordSuccessfulCall();
+	}
+
+	return response;
 }
 
 /**
@@ -95,7 +155,7 @@ export async function createSpreadsheet(title: string = 'Bus Tracker'): Promise<
 export async function getSpreadsheetInfo(
 	spreadsheetId: string
 ): Promise<{ title: string; sheets: string[] }> {
-	const response = await fetch(`${SHEETS_API_BASE}/${spreadsheetId}`, {
+	const response = await fetchWithRateLimitTracking(`${SHEETS_API_BASE}/${spreadsheetId}`, {
 		headers: getAuthHeaders()
 	});
 
@@ -115,7 +175,7 @@ export async function getSpreadsheetInfo(
  * Read values from a sheet.
  */
 async function getSheetValues(spreadsheetId: string, range: string): Promise<string[][]> {
-	const response = await fetch(
+	const response = await fetchWithRateLimitTracking(
 		`${SHEETS_API_BASE}/${spreadsheetId}/values/${encodeURIComponent(range)}`,
 		{
 			headers: getAuthHeaders()
@@ -129,6 +189,35 @@ async function getSheetValues(spreadsheetId: string, range: string): Promise<str
 
 	const data = await response.json();
 	return data.values || [];
+}
+
+/**
+ * Batch read multiple ranges in a single API call.
+ * Returns an array of value arrays, one per range requested.
+ */
+async function batchGetValues(spreadsheetId: string, ranges: string[]): Promise<string[][][]> {
+	const params = new URLSearchParams();
+	for (const range of ranges) {
+		params.append('ranges', range);
+	}
+
+	const response = await fetchWithRateLimitTracking(
+		`${SHEETS_API_BASE}/${spreadsheetId}/values:batchGet?${params}`,
+		{
+			headers: getAuthHeaders()
+		}
+	);
+
+	if (!response.ok) {
+		const error = await response.json();
+		throw new Error(error.error?.message || 'Failed to batch read sheets');
+	}
+
+	const data = await response.json();
+	// Each valueRange has a 'values' property
+	return (data.valueRanges || []).map(
+		(vr: { values?: string[][] }) => vr.values || []
+	);
 }
 
 /**
@@ -211,24 +300,37 @@ export async function saveBusConfig(spreadsheetId: string, config: BusConfig[]):
 }
 
 /**
- * Get today's date in YYYY-MM-DD format.
+ * Get today's date in YYYY-MM-DD format (US Eastern timezone).
  */
 export function getTodayDate(): string {
-	return new Date().toISOString().split('T')[0];
+	return getTodayDateEastern();
 }
 
 /**
  * Ensure a daily sheet exists and has data for all configured buses.
+ * Uses caching to avoid repeated API calls once sheet existence is confirmed.
  */
 export async function ensureDailySheet(
 	spreadsheetId: string,
 	date: string = getTodayDate()
 ): Promise<void> {
-	const info = await getSpreadsheetInfo(spreadsheetId);
-	const config = await getBusConfig(spreadsheetId);
+	// Fast path: if we already know the sheet exists, skip all checks
+	if (isSheetCached(spreadsheetId, date)) {
+		return;
+	}
 
-	if (!info.sheets.includes(date)) {
-		// Create the sheet
+	// Deduplicate concurrent calls for the same spreadsheet/date
+	return deduplicateRequest(`ensureDailySheet:${spreadsheetId}:${date}`, async () => {
+		const info = await getSpreadsheetInfo(spreadsheetId);
+
+		if (info.sheets.includes(date)) {
+			// Sheet exists - cache this and return
+			cacheSheetExists(spreadsheetId, date);
+			return;
+		}
+
+		// Sheet doesn't exist - need to create it
+		const config = await getBusConfig(spreadsheetId);
 		await addSheet(spreadsheetId, date);
 
 		// Add headers and initial data
@@ -246,38 +348,17 @@ export async function ensureDailySheet(
 		];
 
 		await updateSheetValues(spreadsheetId, `${date}!A1:G${config.length + 1}`, values);
-	} else {
-		// Sheet exists - check if any configured buses are missing
-		const existingData = await getSheetValues(spreadsheetId, `${date}!A2:A100`);
-		const existingBusNumbers = new Set(existingData.map((row) => row[0]));
 
-		const missingBuses = config.filter((c) => !existingBusNumbers.has(c.bus_number));
-
-		if (missingBuses.length > 0) {
-			// Append missing buses
-			const startRow = existingData.length + 2; // +1 for header, +1 for 1-indexing
-			const values = missingBuses.map((c) => [c.bus_number, '', 'FALSE', '', '', '', '']);
-			await updateSheetValues(
-				spreadsheetId,
-				`${date}!A${startRow}:G${startRow + missingBuses.length - 1}`,
-				values
-			);
-		}
-	}
+		// Cache that the sheet now exists
+		cacheSheetExists(spreadsheetId, date);
+	});
 }
 
 /**
- * Get bus status for a specific date.
+ * Parse raw sheet row values into BusStatus object.
  */
-export async function getBusStatus(
-	spreadsheetId: string,
-	date: string = getTodayDate()
-): Promise<BusStatus[]> {
-	await ensureDailySheet(spreadsheetId, date);
-
-	const values = await getSheetValues(spreadsheetId, `${date}!A2:G100`);
-
-	return values.map((row) => ({
+function parseStatusRow(row: string[]): BusStatus {
+	return {
 		bus_number: row[0] || '',
 		covered_by: row[1] || '',
 		is_uncovered: row[2] === 'TRUE',
@@ -285,11 +366,35 @@ export async function getBusStatus(
 		departure_time: row[4] || '',
 		last_modified_by: row[5] || '',
 		last_modified_at: row[6] || ''
-	}));
+	};
+}
+
+/**
+ * Get bus status for a specific date.
+ * Uses deduplication to prevent concurrent identical requests.
+ */
+export async function getBusStatus(
+	spreadsheetId: string,
+	date: string = getTodayDate()
+): Promise<BusStatus[]> {
+	await ensureDailySheet(spreadsheetId, date);
+
+	// Deduplicate concurrent calls
+	return deduplicateRequest(`getBusStatus:${spreadsheetId}:${date}`, async () => {
+		const values = await getSheetValues(spreadsheetId, `${date}!A2:G100`);
+
+		const statuses = values.map(parseStatusRow);
+
+		// Update row index cache for future updates
+		updateRowIndexCache(spreadsheetId, date, statuses);
+
+		return statuses;
+	});
 }
 
 /**
  * Update a single bus status.
+ * Uses cached row index when available to avoid full sheet reads.
  */
 export async function updateBusStatus(
 	spreadsheetId: string,
@@ -300,25 +405,41 @@ export async function updateBusStatus(
 ): Promise<void> {
 	await ensureDailySheet(spreadsheetId, date);
 
-	// Get current data to find the row
-	const currentData = await getBusStatus(spreadsheetId, date);
-	const rowIndex = currentData.findIndex((b) => b.bus_number === busNumber);
+	// Try to get row index from cache first
+	let rowIndex = getCachedRowIndex(spreadsheetId, date, busNumber);
 
-	if (rowIndex === -1) {
-		throw new Error(`Bus ${busNumber} not found`);
+	if (rowIndex === null) {
+		// Cache miss - need to fetch the data to find the row
+		const currentData = await getBusStatus(spreadsheetId, date);
+		rowIndex = currentData.findIndex((b) => b.bus_number === busNumber);
+
+		if (rowIndex === -1) {
+			throw new Error(`Bus ${busNumber} not found`);
+		}
 	}
+
+	// Row in sheet (1-indexed, +1 for header row)
+	const sheetRow = rowIndex + 2;
+
+	// Read just this single row to get current values for merging
+	const currentRowValues = await getSheetValues(spreadsheetId, `${date}!A${sheetRow}:G${sheetRow}`);
+
+	if (!currentRowValues.length) {
+		throw new Error(`Bus ${busNumber} not found at row ${sheetRow}`);
+	}
+
+	const currentBus = parseStatusRow(currentRowValues[0]);
 
 	// Merge updates
 	const updatedBus: BusStatus = {
-		...currentData[rowIndex],
+		...currentBus,
 		...updates,
 		last_modified_by: userEmail,
 		last_modified_at: new Date().toISOString()
 	};
 
-	// Write back (row index + 2 because of 1-indexing and header row)
-	const row = rowIndex + 2;
-	await updateSheetValues(spreadsheetId, `${date}!A${row}:G${row}`, [
+	// Write back single row
+	await updateSheetValues(spreadsheetId, `${date}!A${sheetRow}:G${sheetRow}`, [
 		[
 			updatedBus.bus_number,
 			updatedBus.covered_by,
@@ -340,9 +461,7 @@ export async function markBusArrived(
 	userEmail: string,
 	arrivalTime?: string
 ): Promise<void> {
-	const time =
-		arrivalTime ||
-		new Date().toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: false });
+	const time = arrivalTime || getCurrentTimeEastern();
 	await updateBusStatus(spreadsheetId, busNumber, { arrival_time: time }, userEmail);
 }
 
@@ -355,9 +474,7 @@ export async function markBusDeparted(
 	userEmail: string,
 	departureTime?: string
 ): Promise<void> {
-	const time =
-		departureTime ||
-		new Date().toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: false });
+	const time = departureTime || getCurrentTimeEastern();
 	await updateBusStatus(spreadsheetId, busNumber, { departure_time: time }, userEmail);
 }
 
@@ -370,11 +487,7 @@ export async function markBusCovered(
 	coveredBy: string,
 	userEmail: string
 ): Promise<void> {
-	const arrivalTime = new Date().toLocaleTimeString('en-US', {
-		hour: '2-digit',
-		minute: '2-digit',
-		hour12: false
-	});
+	const arrivalTime = getCurrentTimeEastern();
 	await updateBusStatus(
 		spreadsheetId,
 		busNumber,
@@ -392,6 +505,53 @@ export async function markBusUncovered(
 	userEmail: string
 ): Promise<void> {
 	await updateBusStatus(spreadsheetId, busNumber, { is_uncovered: true }, userEmail);
+}
+
+/**
+ * Batch fetch config and status data in a single API call.
+ * This is the most efficient way to load initial data.
+ * Returns null for status if the daily sheet doesn't exist yet.
+ */
+export async function getBusDataBatched(
+	spreadsheetId: string,
+	date: string = getTodayDate()
+): Promise<{ config: BusConfig[]; status: BusStatus[] | null; sheetExists: boolean }> {
+	// First check if we need to know about sheet existence
+	const info = await getSpreadsheetInfo(spreadsheetId);
+	const sheetExists = info.sheets.includes(date);
+
+	if (sheetExists) {
+		// Cache that sheet exists
+		cacheSheetExists(spreadsheetId, date);
+
+		// Batch fetch both config and status in one call
+		const [configValues, statusValues] = await batchGetValues(spreadsheetId, [
+			'Config!A2:B100',
+			`${date}!A2:G100`
+		]);
+
+		const config = configValues.map((row) => ({
+			bus_number: row[0] || '',
+			expected_arrival_time: row[1] || ''
+		}));
+
+		const status = statusValues.map(parseStatusRow);
+
+		// Update row index cache
+		updateRowIndexCache(spreadsheetId, date, status);
+
+		return { config, status, sheetExists: true };
+	} else {
+		// Sheet doesn't exist - just get config
+		const configValues = await getSheetValues(spreadsheetId, 'Config!A2:B100');
+
+		const config = configValues.map((row) => ({
+			bus_number: row[0] || '',
+			expected_arrival_time: row[1] || ''
+		}));
+
+		return { config, status: null, sheetExists: false };
+	}
 }
 
 /**
@@ -420,4 +580,248 @@ export async function getHistoricalData(
 	}
 
 	return result;
+}
+
+/**
+ * Check if the Statistics sheet exists.
+ */
+export async function hasStatisticsSheet(spreadsheetId: string): Promise<boolean> {
+	const info = await getSpreadsheetInfo(spreadsheetId);
+	return info.sheets.includes('Statistics');
+}
+
+/**
+ * Ensure the Statistics sheet exists.
+ */
+export async function ensureStatisticsSheet(spreadsheetId: string): Promise<void> {
+	const exists = await hasStatisticsSheet(spreadsheetId);
+	if (exists) return;
+
+	await addSheet(spreadsheetId, 'Statistics');
+	await updateSheetValues(spreadsheetId, 'Statistics!A1:D1', [
+		['key', 'value', 'bus_or_date', 'extra']
+	]);
+}
+
+/**
+ * Parse Statistics sheet data into a StatisticsReport object.
+ */
+function parseStatisticsRows(rows: string[][]): StatisticsReport | null {
+	if (rows.length === 0) return null;
+
+	const report: StatisticsReport = {
+		generatedAt: '',
+		startDate: '',
+		endDate: '',
+		totalDays: 0,
+		totalBusArrivals: 0,
+		overallOnTimePct: 0,
+		perBusStats: [],
+		uncoveredIncidents: [],
+		coveragePairs: [],
+		dailyCounts: []
+	};
+
+	// Track per-bus stats by bus number for assembly
+	const busStatsMap = new Map<
+		string,
+		{ avgDelayMinutes?: number; maxDelayMinutes?: number; onTimePct?: number }
+	>();
+	// Track daily counts by date for assembly
+	const dailyCountsMap = new Map<
+		string,
+		{ total?: number; onTime?: number; late?: number; uncovered?: number }
+	>();
+
+	for (const row of rows) {
+		const [key, value, busOrDate, extra] = row;
+
+		switch (key) {
+			case 'report_generated_at':
+				report.generatedAt = value;
+				break;
+			case 'report_start_date':
+				report.startDate = value;
+				break;
+			case 'report_end_date':
+				report.endDate = value;
+				break;
+			case 'total_days':
+				report.totalDays = parseInt(value, 10) || 0;
+				break;
+			case 'total_bus_arrivals':
+				report.totalBusArrivals = parseInt(value, 10) || 0;
+				break;
+			case 'overall_on_time_pct':
+				report.overallOnTimePct = parseFloat(value) || 0;
+				break;
+			case 'bus_avg_delay': {
+				const bus = busOrDate;
+				if (!busStatsMap.has(bus)) busStatsMap.set(bus, {});
+				busStatsMap.get(bus)!.avgDelayMinutes = parseFloat(value) || 0;
+				break;
+			}
+			case 'bus_max_delay': {
+				const bus = busOrDate;
+				if (!busStatsMap.has(bus)) busStatsMap.set(bus, {});
+				busStatsMap.get(bus)!.maxDelayMinutes = parseFloat(value) || 0;
+				break;
+			}
+			case 'bus_on_time_pct': {
+				const bus = busOrDate;
+				if (!busStatsMap.has(bus)) busStatsMap.set(bus, {});
+				busStatsMap.get(bus)!.onTimePct = parseFloat(value) || 0;
+				break;
+			}
+			case 'uncovered_incident':
+				report.uncoveredIncidents.push({ date: value, busNumber: busOrDate });
+				break;
+			case 'coverage_pair':
+				report.coveragePairs.push({
+					coveringBus: busOrDate,
+					coveredBus: extra,
+					count: parseInt(value, 10) || 0
+				});
+				break;
+			case 'daily_count': {
+				const date = busOrDate;
+				const countType = extra as 'total' | 'onTime' | 'late' | 'uncovered';
+				if (!dailyCountsMap.has(date)) dailyCountsMap.set(date, {});
+				dailyCountsMap.get(date)![countType] = parseInt(value, 10) || 0;
+				break;
+			}
+		}
+	}
+
+	// Assemble per-bus stats
+	for (const [busNumber, stats] of busStatsMap) {
+		report.perBusStats.push({
+			busNumber,
+			avgDelayMinutes: stats.avgDelayMinutes ?? 0,
+			maxDelayMinutes: stats.maxDelayMinutes ?? 0,
+			onTimePct: stats.onTimePct ?? 0
+		});
+	}
+
+	// Assemble daily counts
+	for (const [date, counts] of dailyCountsMap) {
+		report.dailyCounts.push({
+			date,
+			total: counts.total ?? 0,
+			onTime: counts.onTime ?? 0,
+			late: counts.late ?? 0,
+			uncovered: counts.uncovered ?? 0
+		});
+	}
+
+	// Sort daily counts by date
+	report.dailyCounts.sort((a, b) => a.date.localeCompare(b.date));
+
+	return report.generatedAt ? report : null;
+}
+
+/**
+ * Get the statistics report from the Statistics sheet.
+ * Returns null if no report has been generated yet.
+ */
+export async function getStatisticsReport(spreadsheetId: string): Promise<StatisticsReport | null> {
+	const exists = await hasStatisticsSheet(spreadsheetId);
+	if (!exists) return null;
+
+	const values = await getSheetValues(spreadsheetId, 'Statistics!A2:D1000');
+	return parseStatisticsRows(values);
+}
+
+/**
+ * Convert a StatisticsReport to row format for the Statistics sheet.
+ */
+function statisticsReportToRows(report: StatisticsReport): string[][] {
+	const rows: string[][] = [];
+
+	// Header info
+	rows.push(['report_generated_at', report.generatedAt, '', '']);
+	rows.push(['report_start_date', report.startDate, '', '']);
+	rows.push(['report_end_date', report.endDate, '', '']);
+	rows.push(['total_days', String(report.totalDays), '', '']);
+	rows.push(['total_bus_arrivals', String(report.totalBusArrivals), '', '']);
+	rows.push(['overall_on_time_pct', String(report.overallOnTimePct), '', '']);
+
+	// Per-bus stats
+	for (const bus of report.perBusStats) {
+		rows.push(['bus_avg_delay', String(bus.avgDelayMinutes), bus.busNumber, '']);
+		rows.push(['bus_max_delay', String(bus.maxDelayMinutes), bus.busNumber, '']);
+		rows.push(['bus_on_time_pct', String(bus.onTimePct), bus.busNumber, '']);
+	}
+
+	// Uncovered incidents
+	for (const incident of report.uncoveredIncidents) {
+		rows.push(['uncovered_incident', incident.date, incident.busNumber, '']);
+	}
+
+	// Coverage pairs
+	for (const pair of report.coveragePairs) {
+		rows.push(['coverage_pair', String(pair.count), pair.coveringBus, pair.coveredBus]);
+	}
+
+	// Daily counts
+	for (const day of report.dailyCounts) {
+		rows.push(['daily_count', String(day.total), day.date, 'total']);
+		rows.push(['daily_count', String(day.onTime), day.date, 'onTime']);
+		rows.push(['daily_count', String(day.late), day.date, 'late']);
+		rows.push(['daily_count', String(day.uncovered), day.date, 'uncovered']);
+	}
+
+	return rows;
+}
+
+/**
+ * Save a statistics report to the Statistics sheet.
+ * Clears existing data and writes the new report.
+ */
+export async function saveStatisticsReport(
+	spreadsheetId: string,
+	report: StatisticsReport
+): Promise<void> {
+	await ensureStatisticsSheet(spreadsheetId);
+
+	const rows = statisticsReportToRows(report);
+	const allRows = [['key', 'value', 'bus_or_date', 'extra'], ...rows];
+
+	await updateSheetValues(spreadsheetId, `Statistics!A1:D${allRows.length}`, allRows);
+}
+
+/**
+ * Fetch ALL historical data for statistics calculation.
+ * Uses batch API for efficiency.
+ */
+export async function getAllHistoricalData(spreadsheetId: string): Promise<{
+	config: BusConfig[];
+	dailyData: Record<string, BusStatus[]>;
+}> {
+	const dates = await getAvailableDates(spreadsheetId);
+
+	if (dates.length === 0) {
+		// Just get config
+		const config = await getBusConfig(spreadsheetId);
+		return { config, dailyData: {} };
+	}
+
+	// Build ranges for batch fetch: config + all daily sheets
+	const ranges = ['Config!A2:B100', ...dates.map((date) => `${date}!A2:G100`)];
+
+	const results = await batchGetValues(spreadsheetId, ranges);
+
+	// First result is config
+	const config = results[0].map((row) => ({
+		bus_number: row[0] || '',
+		expected_arrival_time: row[1] || ''
+	}));
+
+	// Remaining results are daily data
+	const dailyData: Record<string, BusStatus[]> = {};
+	for (let i = 0; i < dates.length; i++) {
+		dailyData[dates[i]] = results[i + 1].map(parseStatusRow);
+	}
+
+	return { config, dailyData };
 }

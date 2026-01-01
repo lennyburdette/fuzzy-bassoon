@@ -8,10 +8,12 @@ import {
 	type BusStatus,
 	type BusDerivedStatus,
 	deriveBusStatus,
-	getBusConfig,
 	getBusStatus,
+	getBusDataBatched,
+	ensureDailySheet,
 	getTodayDate
 } from '$lib/services/sheets-api';
+import { clearAllCaches, getRecommendedPollInterval } from '$lib/services/sheets-cache';
 
 export type ViewMode = 'monitor' | 'teacher' | 'admin';
 export type BusSection = 'pending' | 'arrived' | 'done';
@@ -33,15 +35,17 @@ export interface BusWithStatus extends BusStatus {
 
 /**
  * Derive which UI section a bus belongs to based on its status.
+ * Uncovered buses stay in pending section so they remain visible.
  */
 export function deriveBusSection(status: BusDerivedStatus): BusSection {
-	if (status === 'departed' || status === 'uncovered') return 'done';
+	if (status === 'departed') return 'done';
 	if (status === 'arrived') return 'arrived';
-	return 'pending';
+	return 'pending'; // includes 'pending' and 'uncovered'
 }
 
 /**
  * Derive available actions for a bus based on its state and the current view mode.
+ * Admin mode only shows edit button; all other actions are performed via the edit modal.
  */
 export function deriveBusActions(
 	bus: BusStatus & { derivedStatus: BusDerivedStatus },
@@ -49,14 +53,14 @@ export function deriveBusActions(
 ): BusActions {
 	const isPending = bus.derivedStatus === 'pending';
 	const isArrived = bus.derivedStatus === 'arrived';
-	const canAct = mode === 'monitor' || mode === 'admin';
+	const isMonitor = mode === 'monitor';
 
 	return {
-		canMarkArrived: canAct && isPending && !bus.covered_by && !bus.is_uncovered,
-		canMarkDeparted: canAct && isArrived,
-		canMarkCovered: canAct && isPending, // Only pending buses can be covered
-		canMarkUncovered: mode === 'admin' && isPending,
-		canEdit: canAct // Always allow edit for monitors and admins
+		canMarkArrived: isMonitor && isPending && !bus.covered_by && !bus.is_uncovered,
+		canMarkDeparted: isMonitor && isArrived,
+		canMarkCovered: isMonitor && isPending,
+		canMarkUncovered: false, // Only available through edit modal now
+		canEdit: mode === 'monitor' || mode === 'admin'
 	};
 }
 
@@ -109,19 +113,27 @@ function mergeBusData(configData: BusConfig[], statusData: BusStatus[]): BusWith
 
 /**
  * Load bus data for a specific sheet.
+ * Uses batched API call when possible to reduce API requests.
  */
 export async function loadBuses(spreadsheetId: string, date: string = getTodayDate()): Promise<void> {
 	isLoading = true;
 	error = null;
 
 	try {
-		const [configData, statusData] = await Promise.all([
-			getBusConfig(spreadsheetId),
-			getBusStatus(spreadsheetId, date)
-		]);
+		const result = await getBusDataBatched(spreadsheetId, date);
 
-		config = configData;
-		buses = mergeBusData(configData, statusData);
+		config = result.config;
+
+		if (result.sheetExists && result.status) {
+			// Sheet exists, we have both config and status
+			buses = mergeBusData(result.config, result.status);
+		} else {
+			// Sheet doesn't exist - create it and fetch status
+			await ensureDailySheet(spreadsheetId, date);
+			const statusData = await getBusStatus(spreadsheetId, date);
+			buses = mergeBusData(result.config, statusData);
+		}
+
 		lastUpdated = new Date();
 	} catch (e) {
 		error = e instanceof Error ? e.message : 'Failed to load buses';
@@ -148,14 +160,30 @@ export async function refreshBuses(
 	}
 }
 
+// Store the spreadsheet ID for adaptive polling restarts
+let currentSpreadsheetId: string | null = null;
+
 /**
  * Start polling for updates.
+ * Uses adaptive intervals that increase when rate limits are hit.
  */
 export function startPolling(spreadsheetId: string, intervalMs: number = 10000): void {
 	stopPolling();
+	currentSpreadsheetId = spreadsheetId;
+
+	// Use recommended interval (may be longer if we've hit rate limits)
+	const actualInterval = Math.max(intervalMs, getRecommendedPollInterval());
+
 	pollInterval = setInterval(() => {
-		refreshBuses(spreadsheetId);
-	}, intervalMs);
+		refreshBuses(spreadsheetId).then(() => {
+			// Check if we need to adjust polling interval after each refresh
+			const newInterval = getRecommendedPollInterval();
+			if (newInterval !== actualInterval && currentSpreadsheetId) {
+				// Restart polling with new interval
+				startPolling(currentSpreadsheetId, intervalMs);
+			}
+		});
+	}, actualInterval);
 }
 
 /**
@@ -166,6 +194,7 @@ export function stopPolling(): void {
 		clearInterval(pollInterval);
 		pollInterval = null;
 	}
+	currentSpreadsheetId = null;
 }
 
 /**
@@ -225,11 +254,16 @@ export function getBusesForView(mode: ViewMode): {
 		}
 	}
 
-	// Sort each section alphabetically
+	// Sort each section: uncovered buses first in pending, then alphabetically
 	const sortFn = (a: BusWithStatus, b: BusWithStatus) =>
 		a.bus_number.localeCompare(b.bus_number, undefined, { numeric: true });
 
-	pending.sort(sortFn);
+	// For pending section, put uncovered buses first
+	pending.sort((a, b) => {
+		if (a.is_uncovered && !b.is_uncovered) return -1;
+		if (!a.is_uncovered && b.is_uncovered) return 1;
+		return sortFn(a, b);
+	});
 	arrived.sort(sortFn);
 	done.sort(sortFn);
 
@@ -269,4 +303,5 @@ export function resetBusState(): void {
 	isLoading = false;
 	error = null;
 	lastUpdated = null;
+	clearAllCaches();
 }

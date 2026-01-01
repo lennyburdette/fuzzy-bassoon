@@ -3,7 +3,6 @@
 	import { getBusState, loadBuses, startPolling, stopPolling, getBusesWithActions } from '$lib/state/buses.svelte';
 	import { getAccessToken, requestAccessToken } from '$lib/state/auth.svelte';
 	import BusList from './BusList.svelte';
-	import ConnectionStatus from './ConnectionStatus.svelte';
 
 	interface Props {
 		sheetId: string;
@@ -81,11 +80,11 @@
 			<p class="mt-2 text-sm">Ask your administrator to set up the bus list.</p>
 		</div>
 	{:else}
-		<!-- Connection status indicator -->
-		<div class="mb-4 flex items-center justify-end">
-			<ConnectionStatus lastUpdated={busState.lastUpdated} error={busState.error} />
-		</div>
-
-		<BusList buses={getBusesWithActions('teacher')} grouped={true} />
+		<BusList
+			buses={getBusesWithActions('teacher')}
+			grouped={true}
+			lastUpdated={busState.lastUpdated}
+			error={busState.error}
+		/>
 	{/if}
 </div>

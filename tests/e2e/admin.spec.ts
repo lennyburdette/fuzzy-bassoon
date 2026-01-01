@@ -1,6 +1,6 @@
 import { test, expect } from '@playwright/test';
 import { signInAsAdmin } from '../helpers/test-setup';
-import { populatedTracker, trackerWithHistory } from '../fixtures/populated-tracker';
+import { populatedTracker, trackerWithHistory, trackerWithExtendedHistory } from '../fixtures/populated-tracker';
 
 test.describe('Admin Management', () => {
 	test('admin can mark a bus as uncovered', async ({ page }) => {
@@ -19,70 +19,138 @@ test.describe('Admin Management', () => {
 		await expect(page.getByTestId('bus-17')).toContainText(/uncovered/i);
 	});
 
-	test('admin can view statistics for uncovered buses', async ({ page }) => {
+	test('admin sees no report message when no statistics generated', async ({ page }) => {
 		await signInAsAdmin(page, {
 			email: 'admin@lincoln.edu',
 			name: 'School Admin',
-			sheetData: trackerWithHistory,
+			sheetData: populatedTracker, // No statisticsData
 			view: 'admin'
 		});
 
 		// Navigate to statistics
 		await page.getByRole('button', { name: /statistics|stats/i }).click();
 
-		// Should show uncovered bus stats
-		await expect(page.getByText(/uncovered/i)).toBeVisible();
+		// Should show "no report" state with recalculate button
+		await expect(page.getByText(/no.*report|not.*generated/i)).toBeVisible();
+		await expect(page.getByRole('button', { name: /recalculate/i })).toBeVisible();
+	});
 
-		// From fixture: Bus 3 was uncovered on 2024-01-10
-		await expect(page.getByText(/Bus 3/i)).toBeVisible();
+	test('admin can generate statistics report', async ({ page }) => {
+		await signInAsAdmin(page, {
+			email: 'admin@lincoln.edu',
+			name: 'School Admin',
+			sheetData: trackerWithExtendedHistory,
+			view: 'admin'
+		});
+
+		await page.getByRole('button', { name: /statistics|stats/i }).click();
+		await page.getByRole('button', { name: /recalculate/i }).click();
+
+		// Should show loading state
+		await expect(page.getByText(/calculating/i)).toBeVisible();
+
+		// Should show report after generation
+		await expect(page.getByText(/last.*generated|generated/i)).toBeVisible({ timeout: 10000 });
+	});
+
+	test('admin can view statistics for uncovered buses', async ({ page }) => {
+		await signInAsAdmin(page, {
+			email: 'admin@lincoln.edu',
+			name: 'School Admin',
+			sheetData: trackerWithExtendedHistory,
+			view: 'admin'
+		});
+
+		// Navigate to statistics
+		await page.getByRole('button', { name: /statistics|stats/i }).click();
+
+		// Generate report first
+		await page.getByRole('button', { name: /recalculate/i }).click();
+		await expect(page.getByText(/last.*generated|generated/i)).toBeVisible({ timeout: 10000 });
+
+		// Should show uncovered incidents section
+		await expect(page.getByText(/uncovered.*incidents/i)).toBeVisible();
+
+		// From fixture: Bus 3 was uncovered on 2024-01-10, Bus 5 on 2024-01-16
+		await expect(page.getByText(/Bus 3/)).toBeVisible();
+		await expect(page.getByText(/Bus 5/)).toBeVisible();
 	});
 
 	test('admin can view average and max arrival delays', async ({ page }) => {
 		await signInAsAdmin(page, {
 			email: 'admin@lincoln.edu',
 			name: 'School Admin',
-			sheetData: trackerWithHistory,
+			sheetData: trackerWithExtendedHistory,
 			view: 'admin'
 		});
 
 		await page.getByRole('button', { name: /statistics|stats/i }).click();
 
-		// Should show delay statistics
-		await expect(page.getByText(/average.*delay/i)).toBeVisible();
+		// Generate report
+		await page.getByRole('button', { name: /recalculate/i }).click();
+		await expect(page.getByText(/last.*generated|generated/i)).toBeVisible({ timeout: 10000 });
+
+		// Should show per-bus performance table with delay info
+		await expect(page.getByText(/per-bus.*performance/i)).toBeVisible();
+		await expect(page.getByText(/avg.*delay/i)).toBeVisible();
 		await expect(page.getByText(/max.*delay/i)).toBeVisible();
 
-		// From fixture data:
-		// Bus 1 expected 15:00, arrivals: 15:05 (+5), 15:02 (+2), 15:00 (0) = avg 2.33 min
-		// Bus 2 expected 15:05, arrivals: 15:10 (+5), 15:03 (-2), covered = avg 1.5 min (or just +5 if we don't count early)
 		// Should show some delay numbers
-		await expect(page.locator('text=/\\d+\\s*(min|minutes)/i')).toBeVisible();
+		await expect(page.locator('text=/\\d+\\s*min/i').first()).toBeVisible();
 	});
 
-	test('admin can select custom date ranges for statistics', async ({ page }) => {
+	test('admin sees summary cards with statistics', async ({ page }) => {
 		await signInAsAdmin(page, {
 			email: 'admin@lincoln.edu',
 			name: 'School Admin',
-			sheetData: trackerWithHistory,
+			sheetData: trackerWithExtendedHistory,
 			view: 'admin'
 		});
 
 		await page.getByRole('button', { name: /statistics|stats/i }).click();
+		await page.getByRole('button', { name: /recalculate/i }).click();
+		await expect(page.getByText(/last.*generated|generated/i)).toBeVisible({ timeout: 10000 });
 
-		// Should have date range picker
-		const startDate = page.getByLabel(/start.*date|from/i);
-		const endDate = page.getByLabel(/end.*date|to/i);
+		// Should show summary cards
+		await expect(page.getByText(/total.*days/i)).toBeVisible();
+		await expect(page.getByText(/on-time.*rate/i)).toBeVisible();
 
-		await expect(startDate).toBeVisible();
-		await expect(endDate).toBeVisible();
+		// From fixture: 10 days of data
+		await expect(page.getByText('10')).toBeVisible();
+	});
 
-		// Set custom range
-		await startDate.fill('2024-01-10');
-		await endDate.fill('2024-01-11');
+	test('admin sees charts after generating statistics', async ({ page }) => {
+		await signInAsAdmin(page, {
+			email: 'admin@lincoln.edu',
+			name: 'School Admin',
+			sheetData: trackerWithExtendedHistory,
+			view: 'admin'
+		});
 
-		await page.getByRole('button', { name: /apply|filter/i }).click();
+		await page.getByRole('button', { name: /statistics|stats/i }).click();
+		await page.getByRole('button', { name: /recalculate/i }).click();
+		await expect(page.getByText(/last.*generated|generated/i)).toBeVisible({ timeout: 10000 });
 
-		// Stats should update based on filtered range
-		// Only data from 2024-01-10 and 2024-01-11 should be included
-		await expect(page.getByText(/2024-01-10.*2024-01-11|jan 10.*jan 11/i)).toBeVisible();
+		// Should have rendered at least 2 charts (daily trend + on-time pie)
+		await expect(page.locator('canvas')).toHaveCount(3);
+	});
+
+	test('admin can view coverage summary', async ({ page }) => {
+		await signInAsAdmin(page, {
+			email: 'admin@lincoln.edu',
+			name: 'School Admin',
+			sheetData: trackerWithExtendedHistory,
+			view: 'admin'
+		});
+
+		await page.getByRole('button', { name: /statistics|stats/i }).click();
+		await page.getByRole('button', { name: /recalculate/i }).click();
+		await expect(page.getByText(/last.*generated|generated/i)).toBeVisible({ timeout: 10000 });
+
+		// Should show coverage summary section
+		await expect(page.getByText(/coverage.*summary/i)).toBeVisible();
+
+		// From fixture: Bus 1 covers Bus 2 and Bus 3
+		await expect(page.getByText(/Bus 1.*covered/i)).toBeVisible();
 	});
 });

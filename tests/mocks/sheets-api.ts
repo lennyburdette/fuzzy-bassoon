@@ -19,6 +19,7 @@ export interface MockSheetData {
 	spreadsheetId: string;
 	config: BusConfig[];
 	dailyData: Record<string, BusStatus[]>; // keyed by date YYYY-MM-DD
+	statisticsData?: string[][]; // raw Statistics sheet data (key-value rows)
 }
 
 const SHEETS_API_BASE = 'https://sheets.googleapis.com/v4/spreadsheets';
@@ -37,6 +38,16 @@ export async function mockSheetsApi(page: Page, initialData: MockSheetData) {
 
 		if (method === 'GET' && !url.pathname.includes('/values/')) {
 			// Get spreadsheet metadata
+			const sheets = [
+				{ properties: { title: 'Config', sheetId: 0 } },
+				...Object.keys(data.dailyData).map((date, i) => ({
+					properties: { title: date, sheetId: i + 1 }
+				}))
+			];
+			// Include Statistics sheet if it has data
+			if (data.statisticsData && data.statisticsData.length > 0) {
+				sheets.push({ properties: { title: 'Statistics', sheetId: 999 } });
+			}
 			await route.fulfill({
 				status: 200,
 				contentType: 'application/json',
@@ -45,14 +56,29 @@ export async function mockSheetsApi(page: Page, initialData: MockSheetData) {
 					properties: {
 						title: 'Bus Tracker'
 					},
-					sheets: [
-						{ properties: { title: 'Config', sheetId: 0 } },
-						...Object.keys(data.dailyData).map((date, i) => ({
-							properties: { title: date, sheetId: i + 1 }
-						}))
-					]
+					sheets
 				})
 			});
+		} else if (url.pathname.includes('/values/Statistics')) {
+			// Get or update Statistics data
+			if (method === 'GET') {
+				await route.fulfill({
+					status: 200,
+					contentType: 'application/json',
+					body: JSON.stringify({
+						range: 'Statistics!A:D',
+						values: data.statisticsData || []
+					})
+				});
+			} else if (method === 'PUT') {
+				const body = JSON.parse(route.request().postData() || '{}');
+				data.statisticsData = body.values || [];
+				await route.fulfill({
+					status: 200,
+					contentType: 'application/json',
+					body: JSON.stringify({ updatedCells: body.values?.length || 0 })
+				});
+			}
 		} else if (url.pathname.includes('/values/Config')) {
 			// Get or update config data
 			if (method === 'GET') {
@@ -175,6 +201,49 @@ export async function mockSheetsApi(page: Page, initialData: MockSheetData) {
 		}
 	});
 
+	// Mock batch get for fetching multiple ranges in one call
+	await page.route(
+		`${SHEETS_API_BASE}/${data.spreadsheetId}/values:batchGet**`,
+		async (route: Route) => {
+			const url = new URL(route.request().url());
+			const ranges = url.searchParams.getAll('ranges');
+
+			const valueRanges = ranges.map((range) => {
+				if (range.includes('Config')) {
+					return {
+						range: range,
+						values: data.config.map((c) => [c.bus_number, c.expected_arrival_time])
+					};
+				} else {
+					const dateMatch = range.match(/(\d{4}-\d{2}-\d{2})/);
+					const date = dateMatch ? dateMatch[1] : '';
+					const dayData = data.dailyData[date] || [];
+					return {
+						range: range,
+						values: dayData.map((b) => [
+							b.bus_number,
+							b.covered_by,
+							b.is_uncovered ? 'TRUE' : 'FALSE',
+							b.arrival_time,
+							b.departure_time,
+							b.last_modified_by,
+							b.last_modified_at
+						])
+					};
+				}
+			});
+
+			await route.fulfill({
+				status: 200,
+				contentType: 'application/json',
+				body: JSON.stringify({
+					spreadsheetId: data.spreadsheetId,
+					valueRanges
+				})
+			});
+		}
+	);
+
 	// Mock batch update for creating new sheets (tabs)
 	await page.route(`${SHEETS_API_BASE}/${data.spreadsheetId}:batchUpdate`, async (route: Route) => {
 		const body = JSON.parse(route.request().postData() || '{}');
@@ -184,7 +253,12 @@ export async function mockSheetsApi(page: Page, initialData: MockSheetData) {
 			for (const request of body.requests) {
 				if (request.addSheet) {
 					const sheetTitle = request.addSheet.properties.title;
-					if (!data.dailyData[sheetTitle]) {
+					if (sheetTitle === 'Statistics') {
+						// Initialize Statistics sheet as empty
+						if (!data.statisticsData) {
+							data.statisticsData = [];
+						}
+					} else if (!data.dailyData[sheetTitle]) {
 						// Initialize new daily sheet with buses from config
 						data.dailyData[sheetTitle] = data.config.map((c) => ({
 							bus_number: c.bus_number,
