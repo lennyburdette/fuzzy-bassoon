@@ -149,7 +149,7 @@
 	</header>
 
 	<!-- Main content -->
-	<main class="flex-1 {auth.user && selectedRole && sheetId ? 'sm:mx-auto sm:max-w-5xl sm:px-6 sm:py-8 lg:px-8' : 'mx-auto max-w-5xl px-4 py-8 sm:px-6 lg:px-8'}">
+	<main class="flex-1 {auth.user && selectedRole && sheetId ? 'sm:mx-auto sm:w-full sm:max-w-5xl sm:px-6 sm:py-8 lg:px-8' : 'mx-auto max-w-5xl px-4 py-8 sm:px-6 lg:px-8'}">
 		{#if auth.isLoading}
 			<!-- Loading state -->
 			<div class="flex items-center justify-center py-12">
