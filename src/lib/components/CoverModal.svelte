@@ -1,4 +1,6 @@
 <script lang="ts">
+	import Modal from './Modal.svelte';
+
 	interface Props {
 		busNumber: string;
 		onSelect: (coveringBus: string) => void;
@@ -47,19 +49,8 @@
 	}
 </script>
 
-<!-- Backdrop -->
-<div
-	class="fixed inset-0 z-50 bg-black/50"
-	onclick={onClose}
-	role="dialog"
-	aria-modal="true"
-	aria-labelledby="cover-modal-title"
->
-	<!-- Bottom sheet -->
-	<div
-		class="absolute bottom-0 left-0 right-0 rounded-t-2xl bg-white p-4 pb-8 shadow-xl"
-		onclick={(e) => e.stopPropagation()}
-	>
+<Modal open={true} {onClose} titleId="cover-modal-title" variant="bottom-sheet">
+	<div class="rounded-t-2xl bg-white p-4 pb-8 shadow-xl">
 		<div class="mx-auto mb-4 h-1 w-12 rounded-full bg-bus-300"></div>
 
 		<h2 id="cover-modal-title" class="mb-2 text-center text-lg font-semibold text-stone-900">
@@ -77,6 +68,7 @@
 				<button
 					type="button"
 					onclick={backspace}
+					aria-label="Backspace"
 					class="flex h-14 w-14 items-center justify-center rounded-lg bg-bus-200 text-stone-700 active:bg-bus-300"
 				>
 					<svg class="h-6 w-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -151,4 +143,4 @@
 			Cancel
 		</button>
 	</div>
-</div>
+</Modal>

@@ -1,18 +1,33 @@
 <script lang="ts">
+	import Modal from './Modal.svelte';
 	import type { BusWithStatus } from '$lib/state/buses.svelte';
 
 	interface Props {
 		bus: BusWithStatus;
-		onSave: (updates: { arrival_time?: string; departure_time?: string; covered_by?: string; is_uncovered?: boolean }) => void;
+		onSave: (updates: {
+			arrival_time?: string;
+			departure_time?: string;
+			covered_by?: string;
+			is_uncovered?: boolean;
+		}) => void;
 		onClose: () => void;
 	}
 
 	let { bus, onSave, onClose }: Props = $props();
 
-	let arrivalTime = $state(bus.arrival_time);
-	let departureTime = $state(bus.departure_time);
-	let coveredBy = $state(bus.covered_by);
-	let isUncovered = $state(bus.is_uncovered);
+	// Initialize form state - intentionally capturing initial values for editing
+	let arrivalTime = $state<string | undefined>(undefined);
+	let departureTime = $state<string | undefined>(undefined);
+	let coveredBy = $state<string | undefined>(undefined);
+	let isUncovered = $state<boolean | undefined>(undefined);
+
+	// Initialize from bus prop when component mounts or bus changes
+	$effect(() => {
+		arrivalTime = bus.arrival_time;
+		departureTime = bus.departure_time;
+		coveredBy = bus.covered_by;
+		isUncovered = bus.is_uncovered;
+	});
 
 	function getCurrentTime(): string {
 		const now = new Date();
@@ -37,17 +52,8 @@
 	}
 </script>
 
-<div
-	class="fixed inset-0 z-50 flex items-end sm:items-center sm:justify-center bg-black/50"
-	onclick={onClose}
-	role="dialog"
-	aria-modal="true"
-	aria-labelledby="edit-modal-title"
->
-	<div
-		class="w-full sm:mx-4 sm:max-w-sm rounded-t-xl sm:rounded-lg bg-white p-6 shadow-xl"
-		onclick={(e) => e.stopPropagation()}
-	>
+<Modal open={true} {onClose} titleId="edit-modal-title" variant="centered">
+	<div class="w-full rounded-t-xl bg-white p-6 shadow-xl sm:mx-4 sm:max-w-sm sm:rounded-lg">
 		<h2 id="edit-modal-title" class="mb-4 text-lg font-semibold text-stone-900">
 			Edit Bus {bus.bus_number} for {getTodayDate()}
 		</h2>
@@ -135,7 +141,13 @@
 						: 'border-bus-400 bg-white'}"
 				>
 					{#if isUncovered}
-						<svg class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="3">
+						<svg
+							class="h-4 w-4"
+							fill="none"
+							viewBox="0 0 24 24"
+							stroke="currentColor"
+							stroke-width="3"
+						>
 							<path stroke-linecap="round" stroke-linejoin="round" d="M5 13l4 4L19 7" />
 						</svg>
 					{/if}
@@ -148,12 +160,14 @@
 
 		<div class="mt-6 flex gap-2">
 			<button
+				type="button"
 				onclick={handleSave}
 				class="flex-1 rounded-lg bg-blue-600 px-4 py-2 font-medium text-white hover:bg-blue-700"
 			>
 				Save
 			</button>
 			<button
+				type="button"
 				onclick={onClose}
 				class="flex-1 rounded-lg bg-bus-100 px-4 py-2 text-stone-700 hover:bg-bus-200"
 			>
@@ -161,4 +175,4 @@
 			</button>
 		</div>
 	</div>
-</div>
+</Modal>
