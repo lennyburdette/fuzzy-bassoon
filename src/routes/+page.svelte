@@ -122,7 +122,7 @@
 			<div class="flex items-center justify-between">
 				<h1 class="flex items-center gap-2 text-2xl font-bold text-stone-900">
 					<span class="flex h-8 w-10 items-center justify-center rounded bg-stone-900 text-base">🚌</span>
-					Busted
+					BUSted
 				</h1>
 
 				{#if auth.user}
@@ -167,7 +167,7 @@
 			<!-- Sign in view -->
 			<div class="mx-auto max-w-md rounded-lg bg-white p-8 shadow-md border border-stone-200">
 				<div class="text-center">
-					<h2 class="mb-2 text-xl font-semibold text-stone-900">Welcome to Busted</h2>
+					<h2 class="mb-2 text-xl font-semibold text-stone-900">Welcome to BUSted</h2>
 					<p class="mb-6 text-stone-600">
 						Sign in with your school Google account to continue.
 					</p>
@@ -277,7 +277,7 @@
 				{:else}
 					<div class="text-center text-stone-600">
 						<p class="mb-4">
-							Ask your administrator for the Busted URL for your school.
+							Ask your administrator for the BUSted URL for your school.
 						</p>
 						<p class="text-sm">
 							The URL will look like:<br />
