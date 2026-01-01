@@ -609,19 +609,18 @@ export async function hasStatisticsSheet(spreadsheetId: string): Promise<boolean
 
 /**
  * Ensure the Statistics sheet exists.
+ * No initial headers needed - the horizontal tables include their own headers.
  */
 export async function ensureStatisticsSheet(spreadsheetId: string): Promise<void> {
 	const exists = await hasStatisticsSheet(spreadsheetId);
 	if (exists) return;
 
 	await addSheet(spreadsheetId, 'Statistics');
-	await updateSheetValues(spreadsheetId, 'Statistics!A1:D1', [
-		['key', 'value', 'bus_or_date', 'extra']
-	]);
 }
 
 /**
  * Parse Statistics sheet data into a StatisticsReport object.
+ * Uses state-machine parsing based on section markers.
  */
 function parseStatisticsRows(rows: string[][]): StatisticsReport | null {
 	if (rows.length === 0) return null;
@@ -639,96 +638,95 @@ function parseStatisticsRows(rows: string[][]): StatisticsReport | null {
 		dailyCounts: []
 	};
 
-	// Track per-bus stats by bus number for assembly
-	const busStatsMap = new Map<
-		string,
-		{ avgDelayMinutes?: number; maxDelayMinutes?: number; onTimePct?: number }
-	>();
-	// Track daily counts by date for assembly
-	const dailyCountsMap = new Map<
-		string,
-		{ total?: number; onTime?: number; late?: number; uncovered?: number }
-	>();
+	type TableContext = 'none' | 'summary' | 'per_bus' | 'daily' | 'coverage' | 'uncovered';
+	let currentTable: TableContext = 'none';
+	let skipNextRow = false; // Skip header rows after markers
 
 	for (const row of rows) {
-		const [key, value, busOrDate, extra] = row;
+		const firstCell = (row[0] || '').trim();
 
-		switch (key) {
-			case 'report_generated_at':
-				report.generatedAt = value;
+		// Detect table markers
+		if (firstCell === '--- SUMMARY ---') {
+			currentTable = 'summary';
+			skipNextRow = true;
+			continue;
+		}
+		if (firstCell === '--- PER-BUS STATISTICS ---') {
+			currentTable = 'per_bus';
+			skipNextRow = true;
+			continue;
+		}
+		if (firstCell === '--- DAILY COUNTS ---') {
+			currentTable = 'daily';
+			skipNextRow = true;
+			continue;
+		}
+		if (firstCell === '--- COVERAGE PAIRS ---') {
+			currentTable = 'coverage';
+			skipNextRow = true;
+			continue;
+		}
+		if (firstCell === '--- UNCOVERED INCIDENTS ---') {
+			currentTable = 'uncovered';
+			skipNextRow = true;
+			continue;
+		}
+
+		// Skip header rows (row immediately after marker)
+		if (skipNextRow) {
+			skipNextRow = false;
+			continue;
+		}
+
+		// Skip empty rows
+		if (!firstCell) continue;
+
+		// Parse based on current table context
+		switch (currentTable) {
+			case 'summary':
+				// Summary has exactly one data row
+				report.generatedAt = row[0] || '';
+				report.startDate = row[1] || '';
+				report.endDate = row[2] || '';
+				report.totalDays = parseInt(row[3], 10) || 0;
+				report.totalBusArrivals = parseInt(row[4], 10) || 0;
+				report.overallOnTimePct = parseFloat(row[5]) || 0;
 				break;
-			case 'report_start_date':
-				report.startDate = value;
-				break;
-			case 'report_end_date':
-				report.endDate = value;
-				break;
-			case 'total_days':
-				report.totalDays = parseInt(value, 10) || 0;
-				break;
-			case 'total_bus_arrivals':
-				report.totalBusArrivals = parseInt(value, 10) || 0;
-				break;
-			case 'overall_on_time_pct':
-				report.overallOnTimePct = parseFloat(value) || 0;
-				break;
-			case 'bus_avg_delay': {
-				const bus = busOrDate;
-				if (!busStatsMap.has(bus)) busStatsMap.set(bus, {});
-				busStatsMap.get(bus)!.avgDelayMinutes = parseFloat(value) || 0;
-				break;
-			}
-			case 'bus_max_delay': {
-				const bus = busOrDate;
-				if (!busStatsMap.has(bus)) busStatsMap.set(bus, {});
-				busStatsMap.get(bus)!.maxDelayMinutes = parseFloat(value) || 0;
-				break;
-			}
-			case 'bus_on_time_pct': {
-				const bus = busOrDate;
-				if (!busStatsMap.has(bus)) busStatsMap.set(bus, {});
-				busStatsMap.get(bus)!.onTimePct = parseFloat(value) || 0;
-				break;
-			}
-			case 'uncovered_incident':
-				report.uncoveredIncidents.push({ date: value, busNumber: busOrDate });
-				break;
-			case 'coverage_pair':
-				report.coveragePairs.push({
-					coveringBus: busOrDate,
-					coveredBus: extra,
-					count: parseInt(value, 10) || 0
+
+			case 'per_bus':
+				report.perBusStats.push({
+					busNumber: row[0] || '',
+					avgDelayMinutes: parseFloat(row[1]) || 0,
+					maxDelayMinutes: parseFloat(row[2]) || 0,
+					onTimePct: parseFloat(row[3]) || 0
 				});
 				break;
-			case 'daily_count': {
-				const date = busOrDate;
-				const countType = extra as 'total' | 'onTime' | 'late' | 'uncovered';
-				if (!dailyCountsMap.has(date)) dailyCountsMap.set(date, {});
-				dailyCountsMap.get(date)![countType] = parseInt(value, 10) || 0;
+
+			case 'daily':
+				report.dailyCounts.push({
+					date: row[0] || '',
+					total: parseInt(row[1], 10) || 0,
+					onTime: parseInt(row[2], 10) || 0,
+					late: parseInt(row[3], 10) || 0,
+					uncovered: parseInt(row[4], 10) || 0
+				});
 				break;
-			}
+
+			case 'coverage':
+				report.coveragePairs.push({
+					coveringBus: row[0] || '',
+					coveredBus: row[1] || '',
+					count: parseInt(row[2], 10) || 0
+				});
+				break;
+
+			case 'uncovered':
+				report.uncoveredIncidents.push({
+					date: row[0] || '',
+					busNumber: row[1] || ''
+				});
+				break;
 		}
-	}
-
-	// Assemble per-bus stats
-	for (const [busNumber, stats] of busStatsMap) {
-		report.perBusStats.push({
-			busNumber,
-			avgDelayMinutes: stats.avgDelayMinutes ?? 0,
-			maxDelayMinutes: stats.maxDelayMinutes ?? 0,
-			onTimePct: stats.onTimePct ?? 0
-		});
-	}
-
-	// Assemble daily counts
-	for (const [date, counts] of dailyCountsMap) {
-		report.dailyCounts.push({
-			date,
-			total: counts.total ?? 0,
-			onTime: counts.onTime ?? 0,
-			late: counts.late ?? 0,
-			uncovered: counts.uncovered ?? 0
-		});
 	}
 
 	// Sort daily counts by date
@@ -745,47 +743,79 @@ export async function getStatisticsReport(spreadsheetId: string): Promise<Statis
 	const exists = await hasStatisticsSheet(spreadsheetId);
 	if (!exists) return null;
 
-	const values = await getSheetValues(spreadsheetId, 'Statistics!A2:D1000');
+	// Read from row 1 - the horizontal tables include their own section markers and headers
+	const values = await getSheetValues(spreadsheetId, 'Statistics!A1:F1000');
 	return parseStatisticsRows(values);
 }
 
 /**
  * Convert a StatisticsReport to row format for the Statistics sheet.
+ * Uses horizontal tables with section markers for human readability.
  */
 function statisticsReportToRows(report: StatisticsReport): string[][] {
 	const rows: string[][] = [];
 
-	// Header info
-	rows.push(['report_generated_at', report.generatedAt, '', '']);
-	rows.push(['report_start_date', report.startDate, '', '']);
-	rows.push(['report_end_date', report.endDate, '', '']);
-	rows.push(['total_days', String(report.totalDays), '', '']);
-	rows.push(['total_bus_arrivals', String(report.totalBusArrivals), '', '']);
-	rows.push(['overall_on_time_pct', String(report.overallOnTimePct), '', '']);
+	// Summary Table
+	rows.push(['--- SUMMARY ---']);
+	rows.push(['Generated At', 'Start Date', 'End Date', 'Total Days', 'Total Arrivals', 'On-Time %']);
+	rows.push([
+		report.generatedAt,
+		report.startDate,
+		report.endDate,
+		String(report.totalDays),
+		String(report.totalBusArrivals),
+		String(report.overallOnTimePct)
+	]);
 
-	// Per-bus stats
+	// Blank row separator
+	rows.push([]);
+
+	// Per-Bus Stats Table
+	rows.push(['--- PER-BUS STATISTICS ---']);
+	rows.push(['Bus Number', 'Avg Delay (min)', 'Max Delay (min)', 'On-Time %']);
 	for (const bus of report.perBusStats) {
-		rows.push(['bus_avg_delay', String(bus.avgDelayMinutes), bus.busNumber, '']);
-		rows.push(['bus_max_delay', String(bus.maxDelayMinutes), bus.busNumber, '']);
-		rows.push(['bus_on_time_pct', String(bus.onTimePct), bus.busNumber, '']);
+		rows.push([
+			bus.busNumber,
+			String(bus.avgDelayMinutes),
+			String(bus.maxDelayMinutes),
+			String(bus.onTimePct)
+		]);
 	}
 
-	// Uncovered incidents
-	for (const incident of report.uncoveredIncidents) {
-		rows.push(['uncovered_incident', incident.date, incident.busNumber, '']);
-	}
+	// Blank row separator
+	rows.push([]);
 
-	// Coverage pairs
-	for (const pair of report.coveragePairs) {
-		rows.push(['coverage_pair', String(pair.count), pair.coveringBus, pair.coveredBus]);
-	}
-
-	// Daily counts
+	// Daily Counts Table
+	rows.push(['--- DAILY COUNTS ---']);
+	rows.push(['Date', 'Total', 'On-Time', 'Late', 'Uncovered']);
 	for (const day of report.dailyCounts) {
-		rows.push(['daily_count', String(day.total), day.date, 'total']);
-		rows.push(['daily_count', String(day.onTime), day.date, 'onTime']);
-		rows.push(['daily_count', String(day.late), day.date, 'late']);
-		rows.push(['daily_count', String(day.uncovered), day.date, 'uncovered']);
+		rows.push([
+			day.date,
+			String(day.total),
+			String(day.onTime),
+			String(day.late),
+			String(day.uncovered)
+		]);
+	}
+
+	// Blank row separator
+	rows.push([]);
+
+	// Coverage Pairs Table
+	rows.push(['--- COVERAGE PAIRS ---']);
+	rows.push(['Covering Bus', 'Covered Bus', 'Count']);
+	for (const pair of report.coveragePairs) {
+		rows.push([pair.coveringBus, pair.coveredBus, String(pair.count)]);
+	}
+
+	// Blank row separator
+	rows.push([]);
+
+	// Uncovered Incidents Table
+	rows.push(['--- UNCOVERED INCIDENTS ---']);
+	rows.push(['Date', 'Bus Number']);
+	for (const incident of report.uncoveredIncidents) {
+		rows.push([incident.date, incident.busNumber]);
 	}
 
 	return rows;
@@ -802,9 +832,21 @@ export async function saveStatisticsReport(
 	await ensureStatisticsSheet(spreadsheetId);
 
 	const rows = statisticsReportToRows(report);
-	const allRows = [['key', 'value', 'bus_or_date', 'extra'], ...rows];
 
-	await updateSheetValues(spreadsheetId, `Statistics!A1:D${allRows.length}`, allRows);
+	// Determine the max column width needed (Summary table has 6 columns: A through F)
+	const maxCols = 6;
+
+	// Pad all rows to max width to ensure clean overwrite
+	const paddedRows = rows.map((row) => {
+		const padded = [...row];
+		while (padded.length < maxCols) {
+			padded.push('');
+		}
+		return padded;
+	});
+
+	// Write to sheet - use A1:F{rowCount} to cover full width
+	await updateSheetValues(spreadsheetId, `Statistics!A1:F${paddedRows.length}`, paddedRows);
 }
 
 /**
