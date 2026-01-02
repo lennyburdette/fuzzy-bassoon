@@ -22,9 +22,9 @@ test.describe('Authentication', () => {
 		// Click sign in
 		await page.getByTestId('google-signin-button').click();
 
-		// Should show user is logged in
-		await expect(page.getByText('Jane Teacher')).toBeVisible();
-		await expect(page.getByText('teacher@lincoln.edu')).toBeVisible();
+		// Should show role selection after login
+		await expect(page.getByText(/select your role/i)).toBeVisible();
+		await expect(page.getByRole('button', { name: /sign out/i })).toBeVisible();
 	});
 
 	test('user can bookmark the bus app URL for their specific school', async ({ page }) => {

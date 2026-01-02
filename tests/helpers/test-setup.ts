@@ -1,4 +1,4 @@
-import type { Page } from '@playwright/test';
+import { expect, type Page } from '@playwright/test';
 import { mockGoogleAuth } from '../mocks/google-auth';
 import { mockSheetsApi, type MockSheetData } from '../mocks/sheets-api';
 
@@ -47,6 +47,12 @@ export async function setupAuthenticatedUser(
 		admin: /administrator/i
 	}[role];
 	await page.getByRole('button', { name: roleButtonName }).click();
+
+	const authorizeButton = page.getByRole('button', { name: /authorize access/i });
+	if (await authorizeButton.count()) {
+		await authorizeButton.click();
+		await expect(authorizeButton).toBeHidden({ timeout: 10000 });
+	}
 }
 
 // Convenience functions
