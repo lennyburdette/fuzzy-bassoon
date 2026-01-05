@@ -291,7 +291,7 @@
     });
   }
 
-  function handleEarlyDismissalSave(override: {
+  async function handleEarlyDismissalSave(override: {
     date: string;
     time: string;
     busNumbers: string[];
@@ -310,9 +310,12 @@
       }
       return bus;
     });
+
+    // Auto-save the config to persist the early dismissal override
+    await saveConfig();
   }
 
-  function removeOverrideForDate(date: string) {
+  async function removeOverrideForDate(date: string) {
     editingConfig = editingConfig.map((bus) => {
       if (bus.early_dismissal_overrides?.[date]) {
         const overrides = { ...bus.early_dismissal_overrides };
@@ -321,6 +324,9 @@
       }
       return bus;
     });
+
+    // Auto-save the config to persist the removal
+    await saveConfig();
   }
 
   // Default new arrival time to the last bus's time
