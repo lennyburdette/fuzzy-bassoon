@@ -337,34 +337,77 @@ export async function ensureDailySheet(
 	// Deduplicate concurrent calls for the same spreadsheet/date
 	return deduplicateRequest(`ensureDailySheet:${spreadsheetId}:${date}`, async () => {
 		const info = await getSpreadsheetInfo(spreadsheetId);
+		const sheetExists = info.sheets.includes(date);
 
-		if (info.sheets.includes(date)) {
-			// Sheet exists - cache this and return
-			cacheSheetExists(spreadsheetId, date);
-			return;
+		if (!sheetExists) {
+			// Sheet doesn't exist - create it
+			await addSheet(spreadsheetId, date);
 		}
 
-		// Sheet doesn't exist - need to create it
+		// Get config and current sheet data
 		const config = await getBusConfig(spreadsheetId);
-		await addSheet(spreadsheetId, date);
+		const existingValues = sheetExists
+			? await getSheetValues(spreadsheetId, `${date}!A1:G${config.length + 1}`)
+			: [];
 
-		// Add headers and initial data
-		const values = [
-			[
-				'bus_number',
-				'covered_by',
-				'is_uncovered',
-				'arrival_time',
-				'departure_time',
-				'last_modified_by',
-				'last_modified_at'
-			],
-			...config.map((c) => [c.bus_number, '', 'FALSE', '', '', '', ''])
-		];
+		// Check if sheet needs to be populated/repaired
+		// A valid sheet has: header row + one row per config bus
+		const hasValidHeader =
+			existingValues.length > 0 &&
+			existingValues[0][0] === 'bus_number' &&
+			existingValues[0][3] === 'arrival_time';
 
-		await updateSheetValues(spreadsheetId, `${date}!A1:G${config.length + 1}`, values);
+		const existingBuses = new Set(
+			existingValues.slice(1).map((row) => row[0]).filter(Boolean)
+		);
+		const configBuses = new Set(config.map((c) => c.bus_number));
+		const allBusesPresent =
+			configBuses.size > 0 &&
+			[...configBuses].every((bus) => existingBuses.has(bus));
 
-		// Cache that the sheet now exists
+		if (!hasValidHeader || !allBusesPresent) {
+			// Sheet is empty or missing buses - write full structure
+			// Preserve existing data for buses that are present
+			const existingDataMap = new Map<string, string[]>();
+			for (const row of existingValues.slice(1)) {
+				if (row[0]) {
+					existingDataMap.set(row[0], row);
+				}
+			}
+
+			const values = [
+				[
+					'bus_number',
+					'covered_by',
+					'is_uncovered',
+					'arrival_time',
+					'departure_time',
+					'last_modified_by',
+					'last_modified_at'
+				],
+				...config.map((c) => {
+					const existing = existingDataMap.get(c.bus_number);
+					if (existing) {
+						// Preserve existing data
+						return [
+							existing[0] || c.bus_number,
+							existing[1] || '',
+							existing[2] || 'FALSE',
+							existing[3] || '',
+							existing[4] || '',
+							existing[5] || '',
+							existing[6] || ''
+						];
+					}
+					// New bus - empty row
+					return [c.bus_number, '', 'FALSE', '', '', '', ''];
+				})
+			];
+
+			await updateSheetValues(spreadsheetId, `${date}!A1:G${config.length + 1}`, values);
+		}
+
+		// Cache that the sheet now exists and is valid
 		cacheSheetExists(spreadsheetId, date);
 	});
 }
