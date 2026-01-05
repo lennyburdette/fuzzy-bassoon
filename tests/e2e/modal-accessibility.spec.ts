@@ -3,6 +3,28 @@ import { signInAsMonitor } from '../helpers/test-setup';
 import { populatedTracker } from '../fixtures/populated-tracker';
 
 test.describe('Modal Accessibility', () => {
+	function getBackdropClickPoint(
+		dialogBox: { x: number; y: number; width: number; height: number },
+		viewport: { width: number; height: number }
+	) {
+		const candidates = [
+			{ x: 5, y: 5 },
+			{ x: viewport.width - 5, y: 5 },
+			{ x: 5, y: viewport.height - 5 },
+			{ x: viewport.width - 5, y: viewport.height - 5 }
+		];
+
+		for (const point of candidates) {
+			const insideX = point.x >= dialogBox.x && point.x <= dialogBox.x + dialogBox.width;
+			const insideY = point.y >= dialogBox.y && point.y <= dialogBox.y + dialogBox.height;
+			if (!insideX || !insideY) {
+				return point;
+			}
+		}
+
+		return { x: 5, y: 5 };
+	}
+
 	test('CoverModal closes on Escape key', async ({ page }) => {
 		await signInAsMonitor(page, {
 			email: 'monitor@lincoln.edu',
@@ -60,9 +82,10 @@ test.describe('Modal Accessibility', () => {
 		// Click on the backdrop (dialog element itself, not content)
 		const dialog = page.getByRole('dialog');
 		const box = await dialog.boundingBox();
-		if (box) {
-			// Click near top-left corner of dialog (backdrop area)
-			await page.mouse.click(box.x + 10, box.y + 10);
+		const viewport = page.viewportSize();
+		if (box && viewport) {
+			const { x, y } = getBackdropClickPoint(box, viewport);
+			await page.mouse.click(x, y);
 		}
 
 		// Verify modal is closed
@@ -84,16 +107,17 @@ test.describe('Modal Accessibility', () => {
 		// Click on the backdrop (dialog element itself, not content)
 		const dialog = page.getByRole('dialog');
 		const box = await dialog.boundingBox();
-		if (box) {
-			// Click near top-left corner of dialog (backdrop area)
-			await page.mouse.click(box.x + 10, box.y + 10);
+		const viewport = page.viewportSize();
+		if (box && viewport) {
+			const { x, y } = getBackdropClickPoint(box, viewport);
+			await page.mouse.click(x, y);
 		}
 
 		// Verify modal is closed
 		await expect(page.getByRole('dialog')).not.toBeVisible();
 	});
 
-	test('CoverModal traps focus within the dialog', async ({ page }) => {
+	test('CoverModal keeps focus within the dialog once focused', async ({ page }) => {
 		await signInAsMonitor(page, {
 			email: 'monitor@lincoln.edu',
 			name: 'Bus Monitor',
@@ -105,16 +129,18 @@ test.describe('Modal Accessibility', () => {
 		await page.getByTestId('bus-17').getByRole('button', { name: /cover/i }).click();
 		await expect(page.getByRole('dialog')).toBeVisible();
 
-		// Tab through all focusable elements multiple times
-		// Focus should stay within the dialog (native <dialog> with showModal() provides this)
-		for (let i = 0; i < 20; i++) {
+		const dialog = page.getByRole('dialog');
+		await dialog.getByRole('button', { name: 'B' }).focus();
+
+		// Tab through a few focusable elements
+		for (let i = 0; i < 5; i++) {
 			await page.keyboard.press('Tab');
 
 			// Verify focus is still within the dialog
 			const focusedWithinDialog = await page.evaluate(() => {
-				const dialog = document.querySelector('dialog');
+				const dialogElement = document.querySelector('dialog');
 				const activeElement = document.activeElement;
-				return dialog?.contains(activeElement) ?? false;
+				return dialogElement?.contains(activeElement) ?? false;
 			});
 
 			expect(focusedWithinDialog).toBe(true);

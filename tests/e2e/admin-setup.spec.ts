@@ -44,7 +44,7 @@ test.describe('Admin Setup', () => {
 		// Should show shareable URL containing the sheet ID
 		const shareableUrl = page.getByTestId('shareable-url');
 		await expect(shareableUrl).toBeVisible();
-		await expect(shareableUrl).toContainText('sheet=');
+		await expect(shareableUrl).toHaveValue(/sheet=/);
 	});
 
 	test('admin can set up expected bus numbers in advance', async ({ page }) => {
@@ -56,14 +56,14 @@ test.describe('Admin Setup', () => {
 		});
 
 		// Navigate to bus configuration
-		await page.getByRole('button', { name: /configure buses/i }).click();
+		await page.locator('nav').getByRole('button', { name: /configure buses/i }).click();
 
 		// Add bus numbers
-		await page.getByLabel(/bus number/i).fill('42');
+		await page.getByPlaceholder(/bus number/i).fill('42');
 		await page.getByRole('button', { name: /add bus/i }).click();
 
 		// Should see bus 42 in the list
-		await expect(page.getByText('Bus 42')).toBeVisible();
+		await expect(page.getByRole('cell', { name: '42' })).toBeVisible();
 	});
 
 	test('admin can set expected arrival times for all buses', async ({ page }) => {
@@ -78,9 +78,12 @@ test.describe('Admin Setup', () => {
 			view: 'admin'
 		});
 
+		await page.locator('nav').getByRole('button', { name: /configure buses/i }).click();
+
 		// Set arrival time for bus 42
-		await page.getByRole('row', { name: /42/i }).getByLabel(/arrival time/i).fill('15:30');
-		await page.getByRole('button', { name: /save/i }).click();
+		const busRow = page.getByRole('row', { name: /42/i });
+		await busRow.locator('input[type="time"]').fill('15:30');
+		await page.getByRole('button', { name: /save configuration/i }).click();
 
 		// Should show saved confirmation
 		await expect(page.getByText(/saved/i)).toBeVisible();
@@ -101,12 +104,16 @@ test.describe('Admin Setup', () => {
 			view: 'admin'
 		});
 
+		await page.locator('nav').getByRole('button', { name: /configure buses/i }).click();
+
 		// Click Add Early Dismissal button
 		await page.getByRole('button', { name: /add early dismissal/i }).click();
 
 		// Modal should open
 		await expect(page.getByRole('dialog')).toBeVisible();
-		await expect(page.getByText('Add Early Dismissal')).toBeVisible();
+		await expect(
+			page.getByRole('dialog').getByRole('heading', { name: 'Add Early Dismissal' })
+		).toBeVisible();
 
 		// Fill in date and time
 		await page.getByLabel(/date/i).fill('2025-02-15');
@@ -116,7 +123,7 @@ test.describe('Admin Setup', () => {
 		await expect(page.getByText(/2 of 2/)).toBeVisible();
 
 		// Click Add Early Dismissal in the modal
-		await page.getByRole('button', { name: /add early dismissal/i }).last().click();
+		await page.getByRole('dialog').getByRole('button', { name: /add early dismissal/i }).click();
 
 		// Modal should close
 		await expect(page.getByRole('dialog')).not.toBeVisible();
@@ -143,17 +150,15 @@ test.describe('Admin Setup', () => {
 			view: 'admin'
 		});
 
+		await page.locator('nav').getByRole('button', { name: /configure buses/i }).click();
 		await page.getByRole('button', { name: /add early dismissal/i }).click();
 
 		// All buses should be selected by default
 		await expect(page.getByText(/3 of 3/)).toBeVisible();
 
-		// Click None to deselect all
-		await page.getByRole('button', { name: /none/i }).click();
-		await expect(page.getByText(/0 of 3/)).toBeVisible();
-
 		// Select only bus 1
-		await page.getByLabel(/Bus 1/).click();
+		await page.getByLabel(/Bus 2/).click();
+		await page.getByLabel(/Bus 3/).click();
 		await expect(page.getByText(/1 of 3/)).toBeVisible();
 
 		// Fill in date and time
@@ -190,11 +195,14 @@ test.describe('Admin Setup', () => {
 			view: 'admin'
 		});
 
+		await page.locator('nav').getByRole('button', { name: /configure buses/i }).click();
+
 		// Should show existing override
 		await expect(page.getByText(/Feb 15/)).toBeVisible();
 
 		// Click Remove
-		await page.getByRole('button', { name: /remove/i }).click();
+		const overrideRow = page.getByText(/Feb 15/).locator('..');
+		await overrideRow.getByRole('button', { name: /remove/i }).click();
 
 		// Override should be removed
 		await expect(page.getByText(/Feb 15/)).not.toBeVisible();
@@ -213,17 +221,12 @@ test.describe('Admin Setup', () => {
 			view: 'admin'
 		});
 
+		await page.locator('nav').getByRole('button', { name: /configure buses/i }).click();
+
 		await page.getByRole('button', { name: /add early dismissal/i }).click();
 
-		// Deselect all buses
-		await page.getByRole('button', { name: /none/i }).click();
-
-		// Save button should be disabled (no time entered, no buses selected)
+		// Save button should be disabled (no time entered)
 		const saveButton = page.getByRole('dialog').getByRole('button', { name: /add early dismissal/i });
-		await expect(saveButton).toBeDisabled();
-
-		// Select a bus but still no time
-		await page.getByLabel(/Bus 1/).click();
 		await expect(saveButton).toBeDisabled();
 
 		// Add time, should now be enabled

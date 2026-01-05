@@ -25,17 +25,25 @@ export interface MockSheetData {
 
 const SHEETS_API_BASE = 'https://sheets.googleapis.com/v4/spreadsheets';
 
+function parseRowRange(range: string): { startRow: number; endRow: number } | null {
+	const match = range.match(/!A(\d+):[A-Z]+(\d+)/);
+	if (!match) return null;
+	return { startRow: Number(match[1]), endRow: Number(match[2]) };
+}
+
 /**
  * Mock Google Sheets API for testing.
  * Intercepts API calls and returns mock data.
  */
 export async function mockSheetsApi(page: Page, initialData: MockSheetData) {
-	const data = { ...initialData };
+	const data = JSON.parse(JSON.stringify(initialData)) as MockSheetData;
 
 	// Mock spreadsheet metadata (get spreadsheet info)
 	await page.route(`${SHEETS_API_BASE}/${data.spreadsheetId}**`, async (route: Route) => {
 		const url = new URL(route.request().url());
 		const method = route.request().method();
+		const rangePath = decodeURIComponent(url.pathname.split('/values/')[1] || '');
+		const includeHeader = rangePath.includes('!A1');
 
 		if (method === 'GET' && !url.pathname.includes('/values/')) {
 			// Get spreadsheet metadata
@@ -83,22 +91,37 @@ export async function mockSheetsApi(page: Page, initialData: MockSheetData) {
 		} else if (url.pathname.includes('/values/Config')) {
 			// Get or update config data
 			if (method === 'GET') {
+				const values = data.config.map((c) => [
+					c.bus_number,
+					c.expected_arrival_time,
+					c.early_dismissal_overrides &&
+					Object.keys(c.early_dismissal_overrides).length > 0
+						? JSON.stringify(c.early_dismissal_overrides)
+						: ''
+				]);
+				const rowRange = parseRowRange(rangePath);
+				let payloadValues = values;
+				if (rowRange) {
+					if (rowRange.startRow <= 1) {
+						payloadValues = values.slice(0, Math.max(0, rowRange.endRow - 1));
+					} else {
+						const startIndex = Math.max(0, rowRange.startRow - 2);
+						const endIndex = Math.max(0, rowRange.endRow - 2);
+						payloadValues = values.slice(startIndex, endIndex + 1);
+					}
+				}
+				if (includeHeader) {
+					payloadValues = [
+						['bus_number', 'expected_arrival_time', 'early_dismissal_overrides'],
+						...payloadValues
+					];
+				}
 				await route.fulfill({
 					status: 200,
 					contentType: 'application/json',
 					body: JSON.stringify({
-						range: 'Config!A1:C100',
-						values: [
-							['bus_number', 'expected_arrival_time', 'early_dismissal_overrides'],
-							...data.config.map((c) => [
-								c.bus_number,
-								c.expected_arrival_time,
-								c.early_dismissal_overrides &&
-								Object.keys(c.early_dismissal_overrides).length > 0
-									? JSON.stringify(c.early_dismissal_overrides)
-									: ''
-							])
-						]
+						range: rangePath || 'Config!A2:C100',
+						values: payloadValues
 					})
 				});
 			} else if (method === 'PUT') {
@@ -124,45 +147,78 @@ export async function mockSheetsApi(page: Page, initialData: MockSheetData) {
 
 			if (method === 'GET') {
 				const dayData = data.dailyData[date] || [];
+				const values = dayData.map((b) => [
+					b.bus_number,
+					b.covered_by,
+					b.is_uncovered ? 'TRUE' : 'FALSE',
+					b.arrival_time,
+					b.departure_time,
+					b.last_modified_by,
+					b.last_modified_at
+				]);
+				const rowRange = parseRowRange(rangePath);
+				let payloadValues = values;
+				if (rowRange) {
+					if (rowRange.startRow <= 1) {
+						payloadValues = values.slice(0, Math.max(0, rowRange.endRow - 1));
+					} else {
+						const startIndex = Math.max(0, rowRange.startRow - 2);
+						const endIndex = Math.max(0, rowRange.endRow - 2);
+						payloadValues = values.slice(startIndex, endIndex + 1);
+					}
+				}
+				if (includeHeader) {
+					payloadValues = [
+						[
+							'bus_number',
+							'covered_by',
+							'is_uncovered',
+							'arrival_time',
+							'departure_time',
+							'last_modified_by',
+							'last_modified_at'
+						],
+						...payloadValues
+					];
+				}
 				await route.fulfill({
 					status: 200,
 					contentType: 'application/json',
 					body: JSON.stringify({
-						range: `${date}!A1:G100`,
-						values: [
-							[
-								'bus_number',
-								'covered_by',
-								'is_uncovered',
-								'arrival_time',
-								'departure_time',
-								'last_modified_by',
-								'last_modified_at'
-							],
-							...dayData.map((b) => [
-								b.bus_number,
-								b.covered_by,
-								b.is_uncovered ? 'TRUE' : 'FALSE',
-								b.arrival_time,
-								b.departure_time,
-								b.last_modified_by,
-								b.last_modified_at
-							])
-						]
+						range: rangePath || `${date}!A2:G100`,
+						values: payloadValues
 					})
 				});
 			} else if (method === 'PUT') {
 				const body = JSON.parse(route.request().postData() || '{}');
 				if (body.values) {
-					data.dailyData[date] = body.values.slice(1).map((row: string[]) => ({
-						bus_number: row[0],
-						covered_by: row[1] || '',
-						is_uncovered: row[2] === 'TRUE',
-						arrival_time: row[3] || '',
-						departure_time: row[4] || '',
-						last_modified_by: row[5] || '',
-						last_modified_at: row[6] || ''
-					}));
+					const rowRange = parseRowRange(rangePath);
+					const rows = includeHeader ? body.values.slice(1) : body.values;
+					if (rowRange && rowRange.startRow === rowRange.endRow) {
+						const index = rowRange.startRow - 2;
+						if (index >= 0) {
+							data.dailyData[date] = data.dailyData[date] || [];
+							data.dailyData[date][index] = {
+								bus_number: rows[0]?.[0] || '',
+								covered_by: rows[0]?.[1] || '',
+								is_uncovered: rows[0]?.[2] === 'TRUE',
+								arrival_time: rows[0]?.[3] || '',
+								departure_time: rows[0]?.[4] || '',
+								last_modified_by: rows[0]?.[5] || '',
+								last_modified_at: rows[0]?.[6] || ''
+							};
+						}
+					} else {
+						data.dailyData[date] = rows.map((row: string[]) => ({
+							bus_number: row[0],
+							covered_by: row[1] || '',
+							is_uncovered: row[2] === 'TRUE',
+							arrival_time: row[3] || '',
+							departure_time: row[4] || '',
+							last_modified_by: row[5] || '',
+							last_modified_at: row[6] || ''
+						}));
+					}
 				}
 				await route.fulfill({
 					status: 200,
