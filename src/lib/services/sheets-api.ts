@@ -16,6 +16,7 @@ import {
 import { getCurrentTimeEastern, getTodayDateEastern } from '$lib/utils/time';
 
 const SHEETS_API_BASE = 'https://sheets.googleapis.com/v4/spreadsheets';
+const DRIVE_API_BASE = 'https://www.googleapis.com/drive/v3/files';
 
 export interface BusConfig {
 	bus_number: string;
@@ -111,9 +112,34 @@ async function fetchWithRateLimitTracking(
 }
 
 /**
- * Create a new Google Sheet for bus tracking.
+ * Set domain-wide read/write permission on a file.
+ * Anyone in the specified domain will have writer access.
  */
-export async function createSpreadsheet(title: string = 'Bus Tracker'): Promise<string> {
+async function setDomainPermission(fileId: string, domain: string): Promise<void> {
+	const response = await fetch(`${DRIVE_API_BASE}/${fileId}/permissions`, {
+		method: 'POST',
+		headers: getAuthHeaders(),
+		body: JSON.stringify({
+			type: 'domain',
+			role: 'writer',
+			domain: domain
+		})
+	});
+
+	if (!response.ok) {
+		const error = await response.json();
+		throw new Error(error.error?.message || 'Failed to set domain permission');
+	}
+}
+
+/**
+ * Create a new Google Sheet for bus tracking.
+ * If userEmail is provided, shares the spreadsheet with the user's domain.
+ */
+export async function createSpreadsheet(
+	title: string = 'Bus Tracker',
+	userEmail?: string
+): Promise<string> {
 	// Create the spreadsheet with initial sheets
 	const response = await fetch(SHEETS_API_BASE, {
 		method: 'POST',
@@ -145,6 +171,14 @@ export async function createSpreadsheet(title: string = 'Bus Tracker'): Promise<
 
 	// Add headers to Config sheet
 	await updateSheetValues(spreadsheetId, 'Config!A1:B1', [['bus_number', 'expected_arrival_time']]);
+
+	// Share with user's domain if email provided
+	if (userEmail) {
+		const domain = userEmail.split('@')[1];
+		if (domain) {
+			await setDomainPermission(spreadsheetId, domain);
+		}
+	}
 
 	return spreadsheetId;
 }

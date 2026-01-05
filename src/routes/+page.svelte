@@ -94,7 +94,7 @@
 		createError = null;
 
 		try {
-			const newSheetId = await createSpreadsheet('Bus Tracker');
+			const newSheetId = await createSpreadsheet('Bus Tracker', auth.user?.email);
 			createdSheetId = newSheetId;
 		} catch (e) {
 			createError = e instanceof Error ? e.message : 'Failed to create tracker';
