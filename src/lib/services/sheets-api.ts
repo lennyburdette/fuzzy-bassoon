@@ -626,8 +626,9 @@ export async function getBusDataBatched(
 	const sheetExists = info.sheets.includes(date);
 
 	if (sheetExists) {
-		// Cache that sheet exists
-		cacheSheetExists(spreadsheetId, date);
+		// Validate and repair the sheet structure before reading
+		// (this also caches that the sheet exists and is valid)
+		await ensureDailySheet(spreadsheetId, date);
 
 		// Batch fetch both config and status in one call
 		const [configValues, statusValues] = await batchGetValues(spreadsheetId, [

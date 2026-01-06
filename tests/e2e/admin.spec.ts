@@ -1,6 +1,7 @@
 import { test, expect } from '@playwright/test';
 import { signInAsAdmin } from '../helpers/test-setup';
 import { populatedTracker, trackerWithHistory, trackerWithExtendedHistory } from '../fixtures/populated-tracker';
+import { trackerWithEmptyDailySheet } from '../fixtures/empty-daily-sheet';
 
 test.describe('Admin Management', () => {
 	test('admin can mark a bus as uncovered', async ({ page }) => {
@@ -19,6 +20,26 @@ test.describe('Admin Management', () => {
 		// Should mark as uncovered
 		await expect(page.getByTestId('bus-17')).toHaveAttribute('data-status', 'uncovered');
 		await expect(page.getByTestId('bus-17')).toContainText(/uncovered/i);
+	});
+
+	test('admin can mark bus uncovered when daily sheet has no bus rows', async ({ page }) => {
+		// This tests the fix for "Bus not found" errors when:
+		// - Config has buses configured
+		// - Daily sheet exists but was never populated with bus rows
+		await signInAsAdmin(page, {
+			email: 'admin@lincoln.edu',
+			name: 'School Admin',
+			sheetData: trackerWithEmptyDailySheet,
+			view: 'admin'
+		});
+
+		// Open edit modal for B157
+		await page.getByTestId('bus-B157').getByRole('button', { name: /edit/i }).click();
+		await page.getByRole('dialog').getByRole('button', { name: /mark as uncovered/i }).click();
+		await page.getByRole('dialog').getByRole('button', { name: /save/i }).click();
+
+		// Should succeed without "Bus not found" error
+		await expect(page.getByTestId('bus-B157')).toHaveAttribute('data-status', 'uncovered');
 	});
 
 	test('admin sees no report message when no statistics generated', async ({ page }) => {
