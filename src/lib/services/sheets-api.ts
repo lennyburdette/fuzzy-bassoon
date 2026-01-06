@@ -114,8 +114,10 @@ async function fetchWithRateLimitTracking(
 /**
  * Set domain-wide read/write permission on a file.
  * Anyone in the specified domain will have writer access.
+ * Returns true if successful, false if the domain doesn't support this permission type
+ * (e.g., personal Gmail accounts).
  */
-async function setDomainPermission(fileId: string, domain: string): Promise<void> {
+async function setDomainPermission(fileId: string, domain: string): Promise<boolean> {
 	const response = await fetch(`${DRIVE_API_BASE}/${fileId}/permissions`, {
 		method: 'POST',
 		headers: getAuthHeaders(),
@@ -128,8 +130,19 @@ async function setDomainPermission(fileId: string, domain: string): Promise<void
 
 	if (!response.ok) {
 		const error = await response.json();
-		throw new Error(error.error?.message || 'Failed to set domain permission');
+		const errorMessage = error.error?.message || '';
+
+		// Personal accounts (e.g., gmail.com) don't support domain-wide sharing
+		// Gracefully ignore this error
+		if (errorMessage.includes('invalid or not applicable for the given permission type')) {
+			console.warn(`Domain sharing not supported for ${domain}, skipping.`);
+			return false;
+		}
+
+		throw new Error(errorMessage || 'Failed to set domain permission');
 	}
+
+	return true;
 }
 
 /**
