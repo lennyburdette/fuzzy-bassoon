@@ -20,6 +20,9 @@ const STORAGE_KEY_USER = 'busTracker:user';
 const STORAGE_KEY_TOKEN = 'busTracker:accessToken';
 const STORAGE_KEY_TOKEN_EXPIRY = 'busTracker:tokenExpiry';
 
+// Refresh the token 5 minutes before it expires to avoid mid-session failures
+const REFRESH_BEFORE_EXPIRY_MS = 5 * 60 * 1000;
+
 // Load initial state from localStorage
 function loadStoredUser(): User | null {
 	if (typeof window === 'undefined') return null;
@@ -55,6 +58,9 @@ let error = $state<string | null>(null);
 
 // Token client for getting access tokens
 let tokenClient: google.accounts.oauth2.TokenClient | null = null;
+
+// Timer for proactive silent token refresh
+let refreshTimer: ReturnType<typeof setTimeout> | null = null;
 
 /**
  * Save user to localStorage
@@ -175,6 +181,45 @@ function handleCredentialResponse(response: google.accounts.id.CredentialRespons
 }
 
 /**
+ * Clear the pending refresh timer, if any.
+ */
+function clearRefreshTimer(): void {
+	if (refreshTimer !== null) {
+		clearTimeout(refreshTimer);
+		refreshTimer = null;
+	}
+}
+
+/**
+ * Schedule a silent token refresh to run before the current token expires.
+ * @param expiresIn - token lifetime in seconds (defaults to 3600)
+ */
+function scheduleTokenRefresh(expiresIn: number = 3600): void {
+	clearRefreshTimer();
+
+	const refreshInMs = expiresIn * 1000 - REFRESH_BEFORE_EXPIRY_MS;
+
+	// Only schedule if the token lasts long enough for a proactive refresh
+	if (refreshInMs <= 0) return;
+
+	refreshTimer = setTimeout(() => {
+		silentRefresh();
+	}, refreshInMs);
+}
+
+/**
+ * Attempt a silent (no-prompt) token refresh.
+ * If the user still has a valid Google session this completes without any UI.
+ * On failure the error is stored in state but the user is not immediately signed out —
+ * the next API call that receives a 401 can prompt for re-auth instead.
+ */
+function silentRefresh(): void {
+	if (tokenClient) {
+		tokenClient.requestAccessToken({ prompt: '' });
+	}
+}
+
+/**
  * Handle the token response from OAuth2.
  */
 function handleTokenResponse(response: google.accounts.oauth2.TokenResponse): void {
@@ -182,6 +227,8 @@ function handleTokenResponse(response: google.accounts.oauth2.TokenResponse): vo
 		accessToken = response.access_token;
 		saveToken(response.access_token, response.expires_in);
 		error = null;
+		// Schedule a proactive silent refresh before this token expires
+		scheduleTokenRefresh(response.expires_in);
 	} else if (response.error) {
 		error = response.error;
 	}
@@ -216,6 +263,7 @@ export function renderSignInButton(element: HTMLElement): void {
  * Sign out the current user.
  */
 export function signOut(): void {
+	clearRefreshTimer();
 	user = null;
 	accessToken = null;
 	saveUser(null);
@@ -310,8 +358,12 @@ declare global {
 					error?: string;
 				}
 
+				interface TokenClientConfig {
+					prompt?: string;
+				}
+
 				interface TokenClient {
-					requestAccessToken(): void;
+					requestAccessToken(overrideConfig?: TokenClientConfig): void;
 				}
 
 				function initTokenClient(config: {
