@@ -1,3 +1,6 @@
+<!-- Active bus tracking view for bus monitors. Shows buses with action
+     buttons (Arrived, Departed, Cover, Edit). Uses view transitions for
+     smooth bus card movement between sections. -->
 <script lang="ts">
 	import { onMount, onDestroy } from 'svelte';
 	import {

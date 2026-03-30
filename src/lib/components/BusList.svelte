@@ -1,3 +1,6 @@
+<!-- Container that renders a list of BusItem cards. Supports grouped mode
+     (pending / here / departed sections with headings) or flat mode.
+     Also renders the ConnectionStatus indicator in grouped mode. -->
 <script lang="ts">
 	import type { BusWithStatus, BusSection } from '$lib/state/buses.svelte';
 	import BusItem from './BusItem.svelte';

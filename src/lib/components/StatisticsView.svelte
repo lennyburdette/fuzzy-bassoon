@@ -1,3 +1,7 @@
+<!-- Statistics dashboard for admins. Loads a pre-generated report from the
+     Statistics sheet and renders summary cards, three Chart.js charts (daily
+     trend, on-time doughnut, per-bus delay bar), and data tables. Admins can
+     trigger a full recalculation from all historical daily sheets. -->
 <script lang="ts">
 	import { onMount } from 'svelte';
 	import type { ChartConfiguration } from 'chart.js';

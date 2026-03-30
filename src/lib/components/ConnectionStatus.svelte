@@ -1,3 +1,5 @@
+<!-- Colored status dot indicating data freshness. Green = live, yellow = stale
+     (>30 s since last update), red = error, pulsing = loading. -->
 <script lang="ts">
 	import { formatTimeForDisplay } from '$lib/utils/time';
 

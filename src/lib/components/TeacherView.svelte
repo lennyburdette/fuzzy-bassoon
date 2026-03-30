@@ -1,3 +1,5 @@
+<!-- Read-only bus status board for teachers. Polls for updates every 10 s.
+     Shows all buses grouped by section; no action buttons. -->
 <script lang="ts">
 	import { onMount, onDestroy } from 'svelte';
 	import { getBusState, loadBuses, startPolling, stopPolling, getBusesWithActions } from '$lib/state/buses.svelte';

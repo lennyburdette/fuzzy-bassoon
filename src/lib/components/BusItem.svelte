@@ -1,3 +1,6 @@
+<!-- Individual bus card/row. Renders bus number, status, timestamps, and
+     available action buttons. Responsive: row layout on mobile, card on desktop.
+     Uncovered buses get a red-striped background. -->
 <script lang="ts">
 	import type { BusWithStatus } from '$lib/state/buses.svelte';
 	import { formatTime12Hour } from '$lib/utils/time';

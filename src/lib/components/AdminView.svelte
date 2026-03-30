@@ -1,3 +1,6 @@
+<!-- Admin dashboard with three tabs: Today's Status (full bus management),
+     Configure Buses (add/remove buses, set arrival times, early dismissal
+     overrides), and Statistics (charts + tables from historical data). -->
 <script lang="ts">
   import { onMount, onDestroy } from "svelte";
   import {
