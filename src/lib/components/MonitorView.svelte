@@ -119,7 +119,6 @@
 		if (!user || !coveringBus) return;
 
 		const busToUpdate = coveringBus;
-		const time = getCurrentTimeEastern();
 
 		// Close modal before starting the transition
 		coveringBus = null;
@@ -127,7 +126,7 @@
 		try {
 			actionError = null;
 			withViewTransition(() =>
-				updateBusLocally(busToUpdate, { covered_by: coveringBusNumber, arrival_time: time })
+				updateBusLocally(busToUpdate, { covered_by: coveringBusNumber })
 			);
 			await markBusCovered(sheetId, busToUpdate, coveringBusNumber, user.email);
 		} catch (e) {

@@ -584,7 +584,8 @@ export async function markBusDeparted(
 }
 
 /**
- * Mark a bus as covered by another bus. Also marks as arrived.
+ * Mark a bus as covered by another bus. Does not set arrival_time;
+ * the bus remains pending until explicitly marked arrived.
  */
 export async function markBusCovered(
 	spreadsheetId: string,
@@ -592,11 +593,10 @@ export async function markBusCovered(
 	coveredBy: string,
 	userEmail: string
 ): Promise<void> {
-	const arrivalTime = getCurrentTimeEastern();
 	await updateBusStatus(
 		spreadsheetId,
 		busNumber,
-		{ covered_by: coveredBy, arrival_time: arrivalTime },
+		{ covered_by: coveredBy },
 		userEmail
 	);
 }
