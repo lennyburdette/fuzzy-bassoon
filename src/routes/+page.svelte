@@ -16,7 +16,6 @@
 	import { createSpreadsheet } from '$lib/services/sheets-api';
 	import { resetBusState } from '$lib/state/buses.svelte';
 
-	// TODO: Replace with your Google OAuth Client ID
 	const GOOGLE_CLIENT_ID = import.meta.env.VITE_GOOGLE_CLIENT_ID || '';
 
 	// Get URL parameters

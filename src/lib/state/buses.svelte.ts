@@ -88,7 +88,7 @@ const noActions: BusActions = {
 
 /**
  * Merge config and status data into a single array.
- * Actions are set to defaults; use getBusesForView() to get mode-specific actions.
+ * Actions are set to defaults; use getBusesWithActions() to get mode-specific actions.
  */
 function mergeBusData(
 	configData: BusConfig[],
@@ -235,68 +235,6 @@ export function getBusesWithActions(mode: ViewMode): BusWithStatus[] {
 		...bus,
 		actions: deriveBusActions(bus, mode)
 	}));
-}
-
-/**
- * Get buses with mode-specific actions, grouped by section.
- * This is the primary function for views that render sections separately (like MonitorView).
- */
-export function getBusesForView(mode: ViewMode): {
-	pending: BusWithStatus[];
-	arrived: BusWithStatus[];
-	done: BusWithStatus[];
-} {
-	const pending: BusWithStatus[] = [];
-	const arrived: BusWithStatus[] = [];
-	const done: BusWithStatus[] = [];
-
-	for (const bus of buses) {
-		const busWithActions: BusWithStatus = {
-			...bus,
-			actions: deriveBusActions(bus, mode)
-		};
-
-		if (bus.section === 'done') {
-			done.push(busWithActions);
-		} else if (bus.section === 'arrived') {
-			arrived.push(busWithActions);
-		} else {
-			pending.push(busWithActions);
-		}
-	}
-
-	// Compare two HH:MM time strings; empty string sorts last.
-	const compareTime = (a: string, b: string): number => {
-		if (a === b) return 0;
-		if (a === '') return 1;
-		if (b === '') return -1;
-		return a < b ? -1 : 1;
-	};
-
-	// Sort by departure time asc, arrival time asc, then bus number.
-	const sortByTime = (a: BusWithStatus, b: BusWithStatus): number => {
-		const depDiff = compareTime(a.departure_time, b.departure_time);
-		if (depDiff !== 0) return depDiff;
-		const arrDiff = compareTime(a.arrival_time, b.arrival_time);
-		if (arrDiff !== 0) return arrDiff;
-		return a.bus_number.localeCompare(b.bus_number, undefined, { numeric: true });
-	};
-
-	// For pending buses, departure_time and arrival_time are empty; use effective_arrival_time
-	// as the primary sort key. Uncovered buses still sort first.
-	const sortPending = (a: BusWithStatus, b: BusWithStatus): number => {
-		if (a.is_uncovered && !b.is_uncovered) return -1;
-		if (!a.is_uncovered && b.is_uncovered) return 1;
-		const effDiff = compareTime(a.effective_arrival_time, b.effective_arrival_time);
-		if (effDiff !== 0) return effDiff;
-		return a.bus_number.localeCompare(b.bus_number, undefined, { numeric: true });
-	};
-
-	pending.sort(sortPending);
-	arrived.sort(sortByTime);
-	done.sort(sortByTime);
-
-	return { pending, arrived, done };
 }
 
 /**

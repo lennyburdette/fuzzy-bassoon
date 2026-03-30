@@ -246,13 +246,6 @@ export function getAuthState(): AuthState {
 }
 
 /**
- * Check if user is authenticated.
- */
-export function isAuthenticated(): boolean {
-	return user !== null;
-}
-
-/**
  * Get current user.
  */
 export function getCurrentUser(): User | null {
