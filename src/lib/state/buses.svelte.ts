@@ -59,7 +59,7 @@ export function deriveBusActions(
 	const isMonitor = mode === 'monitor';
 
 	return {
-		canMarkArrived: isMonitor && isPending && !bus.covered_by && !bus.is_uncovered,
+		canMarkArrived: isMonitor && isPending && !bus.is_uncovered,
 		canMarkDeparted: isMonitor && isArrived,
 		canMarkCovered: isMonitor && isPending,
 		canMarkUncovered: false, // Only available through edit modal now

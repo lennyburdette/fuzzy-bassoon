@@ -83,8 +83,14 @@ test.describe('Bus Monitor View', () => {
 		await page.getByRole('dialog').getByRole('button', { name: '2' }).click();
 		await page.getByRole('dialog').getByRole('button', { name: /done/i }).click();
 
-		// Should show bus 17 as covered by B42 and marked as arrived
+		// Should show bus 17 as covered by B42 but still pending (not yet arrived)
 		await expect(page.getByTestId('bus-17')).toContainText('B42');
+		await expect(page.getByTestId('bus-17')).toHaveAttribute('data-status', 'pending');
+
+		// Now mark bus 17 as arrived separately
+		await page.getByTestId('bus-17').getByRole('button', { name: /arrived/i }).click();
+
+		// Status should now change to arrived
 		await expect(page.getByTestId('bus-17')).toHaveAttribute('data-status', 'arrived');
 	});
 
