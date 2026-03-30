@@ -1,3 +1,6 @@
+<!-- Modal for setting early dismissal time overrides. Admins pick a date
+     and override arrival time; the change applies to all selected buses and
+     is stored as a per-date entry in the bus config. -->
 <script lang="ts">
 	import Modal from './Modal.svelte';
 	import type { BusConfig } from '$lib/services/sheets-api';

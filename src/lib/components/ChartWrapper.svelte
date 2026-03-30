@@ -1,3 +1,5 @@
+<!-- Chart.js canvas wrapper. Mounts/destroys the Chart instance with the
+     component lifecycle and reacts to config changes. -->
 <script lang="ts">
 	import { onMount, onDestroy } from 'svelte';
 	import { Chart, registerables, type ChartConfiguration } from 'chart.js';

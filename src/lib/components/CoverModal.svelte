@@ -1,3 +1,6 @@
+<!-- Modal for selecting which bus number is covering another bus. Used when
+     a bus monitor marks a route as "covered." The covering bus ID is
+     entered as a prefix + number combo (e.g., B-42). -->
 <script lang="ts">
 	import Modal from './Modal.svelte';
 

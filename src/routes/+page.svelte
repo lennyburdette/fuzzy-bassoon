@@ -11,12 +11,12 @@
 		getAuthState,
 		signOut,
 		getAccessToken,
-		requestAccessToken
+		requestAccessToken,
+		waitForAccessToken
 	} from '$lib/state/auth.svelte';
 	import { createSpreadsheet } from '$lib/services/sheets-api';
 	import { resetBusState } from '$lib/state/buses.svelte';
 
-	// TODO: Replace with your Google OAuth Client ID
 	const GOOGLE_CLIENT_ID = import.meta.env.VITE_GOOGLE_CLIENT_ID || '';
 
 	// Get URL parameters
@@ -57,33 +57,15 @@
 	}
 
 	async function handleCreateTracker() {
-		// If we don't have an access token yet, request one
 		if (!getAccessToken()) {
 			createError = null;
 			isCreatingTracker = true;
-
-			// Request access token - this will open a popup
 			requestAccessToken();
-
-			// Wait for the token to be available (poll for up to 30 seconds)
-			const startTime = Date.now();
-			const checkToken = async () => {
-				while (!getAccessToken() && Date.now() - startTime < 30000) {
-					await new Promise(resolve => setTimeout(resolve, 500));
-				}
-
-				if (!getAccessToken()) {
-					createError = 'Authorization was not completed. Please try again.';
-					isCreatingTracker = false;
-					return;
-				}
-
-				// Now create the tracker
-				await doCreateTracker();
-			};
-
-			checkToken();
-			return;
+			if (!await waitForAccessToken()) {
+				createError = 'Authorization was not completed. Please try again.';
+				isCreatingTracker = false;
+				return;
+			}
 		}
 
 		await doCreateTracker();

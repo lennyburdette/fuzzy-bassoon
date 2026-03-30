@@ -671,26 +671,6 @@ export async function getAvailableDates(spreadsheetId: string): Promise<string[]
 }
 
 /**
- * Get historical data for statistics.
- */
-export async function getHistoricalData(
-	spreadsheetId: string,
-	startDate: string,
-	endDate: string
-): Promise<Record<string, BusStatus[]>> {
-	const dates = await getAvailableDates(spreadsheetId);
-	const filteredDates = dates.filter((d) => d >= startDate && d <= endDate);
-
-	const result: Record<string, BusStatus[]> = {};
-
-	for (const date of filteredDates) {
-		result[date] = await getBusStatus(spreadsheetId, date);
-	}
-
-	return result;
-}
-
-/**
  * Check if the Statistics sheet exists.
  */
 export async function hasStatisticsSheet(spreadsheetId: string): Promise<boolean> {

@@ -244,6 +244,19 @@ export function requestAccessToken(): void {
 }
 
 /**
+ * Poll until an access token is available or the timeout elapses.
+ * Call requestAccessToken() before this to trigger the OAuth popup.
+ * Returns true if a token was obtained, false if it timed out.
+ */
+export async function waitForAccessToken(timeoutMs: number = 30000): Promise<boolean> {
+	const startTime = Date.now();
+	while (!getAccessToken() && Date.now() - startTime < timeoutMs) {
+		await new Promise((resolve) => setTimeout(resolve, 500));
+	}
+	return getAccessToken() !== null;
+}
+
+/**
  * Render the Google Sign-In button in the specified element.
  */
 export function renderSignInButton(element: HTMLElement): void {
@@ -291,13 +304,6 @@ export function getAuthState(): AuthState {
 			return error;
 		}
 	};
-}
-
-/**
- * Check if user is authenticated.
- */
-export function isAuthenticated(): boolean {
-	return user !== null;
 }
 
 /**

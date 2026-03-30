@@ -134,21 +134,6 @@ export function getRecommendedPollInterval(): number {
 }
 
 /**
- * Check if we should skip this poll due to rate limiting.
- * Returns true if we're in a cooldown period.
- */
-export function shouldThrottlePoll(): boolean {
-	if (rateLimitHits === 0) return false;
-
-	// If we hit a rate limit recently, check if we're still in cooldown
-	const timeSinceLimit = Date.now() - lastRateLimitTime;
-	const cooldownMultiplier = Math.min(rateLimitHits, 4);
-	const cooldownPeriod = RATE_LIMIT_COOLDOWN_MS * cooldownMultiplier;
-
-	return timeSinceLimit < cooldownPeriod;
-}
-
-/**
  * Reset throttle state.
  */
 export function resetThrottleState(): void {

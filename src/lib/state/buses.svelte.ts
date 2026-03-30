@@ -88,7 +88,7 @@ const noActions: BusActions = {
 
 /**
  * Merge config and status data into a single array.
- * Actions are set to defaults; use getBusesForView() to get mode-specific actions.
+ * Actions are set to defaults; use getBusesWithActions() to get mode-specific actions.
  */
 function mergeBusData(
 	configData: BusConfig[],
@@ -299,10 +299,18 @@ export function getBusesForView(mode: ViewMode): {
 	return { pending, arrived, done };
 }
 
+export interface BusStateAccessor {
+	readonly buses: BusWithStatus[];
+	readonly config: BusConfig[];
+	readonly isLoading: boolean;
+	readonly error: string | null;
+	readonly lastUpdated: Date | null;
+}
+
 /**
  * Get state for reactive access.
  */
-export function getBusState() {
+export function getBusState(): BusStateAccessor {
 	return {
 		get buses() {
 			return buses;
