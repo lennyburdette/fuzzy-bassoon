@@ -22,6 +22,7 @@
     getCurrentUser,
     getAccessToken,
     requestAccessToken,
+    waitForAccessToken,
   } from "$lib/state/auth.svelte";
   import BusList from "./BusList.svelte";
   import CoverModal from "./CoverModal.svelte";
@@ -64,14 +65,7 @@
   async function handleAuthorize() {
     isAuthorizing = true;
     requestAccessToken();
-
-    // Wait for the token to be available (poll for up to 30 seconds)
-    const startTime = Date.now();
-    while (!getAccessToken() && Date.now() - startTime < 30000) {
-      await new Promise((resolve) => setTimeout(resolve, 500));
-    }
-
-    if (getAccessToken()) {
+    if (await waitForAccessToken()) {
       needsAuthorization = false;
       await loadBuses(sheetId);
       editingConfig = [...busState.config];
