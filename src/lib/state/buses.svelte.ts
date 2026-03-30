@@ -237,10 +237,18 @@ export function getBusesWithActions(mode: ViewMode): BusWithStatus[] {
 	}));
 }
 
+export interface BusStateAccessor {
+	readonly buses: BusWithStatus[];
+	readonly config: BusConfig[];
+	readonly isLoading: boolean;
+	readonly error: string | null;
+	readonly lastUpdated: Date | null;
+}
+
 /**
  * Get state for reactive access.
  */
-export function getBusState() {
+export function getBusState(): BusStateAccessor {
 	return {
 		get buses() {
 			return buses;
