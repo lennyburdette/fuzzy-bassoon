@@ -1,0 +1,8 @@
+[tools]
+node = "lts"
+
+[shell_alias]
+x = "claude --dangerously-skip-permissions"
+
+[tasks.test]
+run = "npm test"
