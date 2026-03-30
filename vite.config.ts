@@ -4,6 +4,6 @@ import { defineConfig } from 'vite';
 export default defineConfig({
 	plugins: [sveltekit()],
 	server: {
-		allowedHosts: ['6735615ee9e0.ngrok-free.app']
+		allowedHosts: ['6735615ee9e0.ngrok-free.app', '.netlify.app']
 	}
 });
