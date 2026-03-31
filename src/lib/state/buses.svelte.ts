@@ -59,7 +59,7 @@ export function deriveBusActions(
 	const isMonitor = mode === 'monitor';
 
 	return {
-		canMarkArrived: isMonitor && isPending && !bus.covered_by && !bus.is_uncovered,
+		canMarkArrived: isMonitor && isPending && !bus.is_uncovered,
 		canMarkDeparted: isMonitor && isArrived,
 		canMarkCovered: isMonitor && isPending,
 		canMarkUncovered: false, // Only available through edit modal now
@@ -88,7 +88,7 @@ const noActions: BusActions = {
 
 /**
  * Merge config and status data into a single array.
- * Actions are set to defaults; use getBusesForView() to get mode-specific actions.
+ * Actions are set to defaults; use getBusesWithActions() to get mode-specific actions.
  */
 function mergeBusData(
 	configData: BusConfig[],
@@ -265,26 +265,52 @@ export function getBusesForView(mode: ViewMode): {
 		}
 	}
 
-	// Sort each section: uncovered buses first in pending, then alphabetically
-	const sortFn = (a: BusWithStatus, b: BusWithStatus) =>
-		a.bus_number.localeCompare(b.bus_number, undefined, { numeric: true });
+	// Compare two HH:MM time strings; empty string sorts last.
+	const compareTime = (a: string, b: string): number => {
+		if (a === b) return 0;
+		if (a === '') return 1;
+		if (b === '') return -1;
+		return a < b ? -1 : 1;
+	};
 
-	// For pending section, put uncovered buses first
-	pending.sort((a, b) => {
+	// Sort by departure time asc, arrival time asc, then bus number.
+	const sortByTime = (a: BusWithStatus, b: BusWithStatus): number => {
+		const depDiff = compareTime(a.departure_time, b.departure_time);
+		if (depDiff !== 0) return depDiff;
+		const arrDiff = compareTime(a.arrival_time, b.arrival_time);
+		if (arrDiff !== 0) return arrDiff;
+		return a.bus_number.localeCompare(b.bus_number, undefined, { numeric: true });
+	};
+
+	// For pending buses, departure_time and arrival_time are empty; use effective_arrival_time
+	// as the primary sort key. Uncovered buses still sort first.
+	const sortPending = (a: BusWithStatus, b: BusWithStatus): number => {
 		if (a.is_uncovered && !b.is_uncovered) return -1;
 		if (!a.is_uncovered && b.is_uncovered) return 1;
-		return sortFn(a, b);
-	});
-	arrived.sort(sortFn);
-	done.sort(sortFn);
+		const effDiff = compareTime(a.effective_arrival_time, b.effective_arrival_time);
+		if (effDiff !== 0) return effDiff;
+		return a.bus_number.localeCompare(b.bus_number, undefined, { numeric: true });
+	};
+
+	pending.sort(sortPending);
+	arrived.sort(sortByTime);
+	done.sort(sortByTime);
 
 	return { pending, arrived, done };
+}
+
+export interface BusStateAccessor {
+	readonly buses: BusWithStatus[];
+	readonly config: BusConfig[];
+	readonly isLoading: boolean;
+	readonly error: string | null;
+	readonly lastUpdated: Date | null;
 }
 
 /**
  * Get state for reactive access.
  */
-export function getBusState() {
+export function getBusState(): BusStateAccessor {
 	return {
 		get buses() {
 			return buses;

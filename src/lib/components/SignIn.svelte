@@ -1,3 +1,5 @@
+<!-- Renders the Google Sign-In button via the Google Identity Services API.
+     Polls for the GIS script to load before rendering the button. -->
 <script lang="ts">
 	import { onMount } from 'svelte';
 	import { renderSignInButton } from '$lib/state/auth.svelte';

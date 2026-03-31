@@ -1,7 +1,9 @@
+<!-- Read-only bus status board for teachers. Polls for updates every 10 s.
+     Shows all buses grouped by section; no action buttons. -->
 <script lang="ts">
 	import { onMount, onDestroy } from 'svelte';
 	import { getBusState, loadBuses, startPolling, stopPolling, getBusesWithActions } from '$lib/state/buses.svelte';
-	import { getAccessToken, requestAccessToken } from '$lib/state/auth.svelte';
+	import { getAccessToken, requestAccessToken, waitForAccessToken } from '$lib/state/auth.svelte';
 	import BusList from './BusList.svelte';
 
 	interface Props {
@@ -30,13 +32,7 @@
 	async function handleAuthorize() {
 		isAuthorizing = true;
 		requestAccessToken();
-
-		const startTime = Date.now();
-		while (!getAccessToken() && Date.now() - startTime < 30000) {
-			await new Promise(resolve => setTimeout(resolve, 500));
-		}
-
-		if (getAccessToken()) {
+		if (await waitForAccessToken()) {
 			needsAuthorization = false;
 			await loadBuses(sheetId);
 			startPolling(sheetId, 10000);

@@ -1,3 +1,6 @@
+<!-- Base modal dialog component using the native <dialog> element.
+     Handles focus trapping, Escape-to-close, and backdrop-click-to-close.
+     Supports 'centered' (default) and 'bottom-sheet' variants. -->
 <script lang="ts">
 	import { onDestroy } from 'svelte';
 	import type { Snippet } from 'svelte';

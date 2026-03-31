@@ -1,3 +1,6 @@
+<!-- Container that renders a list of BusItem cards. Supports grouped mode
+     (pending / here / departed sections with headings) or flat mode.
+     Also renders the ConnectionStatus indicator in grouped mode. -->
 <script lang="ts">
 	import type { BusWithStatus, BusSection } from '$lib/state/buses.svelte';
 	import BusItem from './BusItem.svelte';
@@ -34,6 +37,32 @@
 		pendingFirst ? ['pending', 'arrived', 'done'] : ['arrived', 'pending', 'done']
 	);
 
+	// Compare two HH:MM time strings; empty string sorts last.
+	const compareTime = (a: string, b: string): number => {
+		if (a === b) return 0;
+		if (a === '') return 1;
+		if (b === '') return -1;
+		return a < b ? -1 : 1;
+	};
+
+	// Sort by departure time asc, arrival time asc, then bus number.
+	const sortByTime = (a: BusWithStatus, b: BusWithStatus): number => {
+		const depDiff = compareTime(a.departure_time, b.departure_time);
+		if (depDiff !== 0) return depDiff;
+		const arrDiff = compareTime(a.arrival_time, b.arrival_time);
+		if (arrDiff !== 0) return arrDiff;
+		return a.bus_number.localeCompare(b.bus_number, undefined, { numeric: true });
+	};
+
+	// For pending buses, use effective_arrival_time as primary sort; uncovered buses sort first.
+	const sortPending = (a: BusWithStatus, b: BusWithStatus): number => {
+		if (a.is_uncovered && !b.is_uncovered) return -1;
+		if (!a.is_uncovered && b.is_uncovered) return 1;
+		const effDiff = compareTime(a.effective_arrival_time, b.effective_arrival_time);
+		if (effDiff !== 0) return effDiff;
+		return a.bus_number.localeCompare(b.bus_number, undefined, { numeric: true });
+	};
+
 	// Group buses by section (uses pre-computed bus.section)
 	let groupedBuses = $derived.by(() => {
 		if (!grouped) return null;
@@ -48,26 +77,19 @@
 			groups[bus.section].push(bus);
 		}
 
-		// Sort within each group: uncovered first in pending, then alphabetically
-		const sortAlpha = (a: BusWithStatus, b: BusWithStatus) =>
-			a.bus_number.localeCompare(b.bus_number, undefined, { numeric: true });
-
+		// Sort within each group: uncovered first in pending, then by time
 		for (const section of Object.keys(groups) as BusSection[]) {
 			if (section === 'pending') {
-				groups[section].sort((a, b) => {
-					if (a.is_uncovered && !b.is_uncovered) return -1;
-					if (!a.is_uncovered && b.is_uncovered) return 1;
-					return sortAlpha(a, b);
-				});
+				groups[section].sort(sortPending);
 			} else {
-				groups[section].sort(sortAlpha);
+				groups[section].sort(sortByTime);
 			}
 		}
 
 		return groups;
 	});
 
-	// Flat sorted list (by section order, then uncovered first in pending, then by bus number)
+	// Flat sorted list (by section order, then uncovered first in pending, then by time)
 	let sortedBuses = $derived.by(() => {
 		if (grouped) return [];
 
@@ -80,12 +102,8 @@
 		return [...buses].sort((a, b) => {
 			const sectionDiff = sectionOrderMap[a.section] - sectionOrderMap[b.section];
 			if (sectionDiff !== 0) return sectionDiff;
-			// Within pending section, uncovered buses come first
-			if (a.section === 'pending') {
-				if (a.is_uncovered && !b.is_uncovered) return -1;
-				if (!a.is_uncovered && b.is_uncovered) return 1;
-			}
-			return a.bus_number.localeCompare(b.bus_number, undefined, { numeric: true });
+			if (a.section === 'pending') return sortPending(a, b);
+			return sortByTime(a, b);
 		});
 	});
 

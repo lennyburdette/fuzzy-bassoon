@@ -1,3 +1,6 @@
+<!-- Modal for editing a single bus's live status fields: arrival time,
+     departure time, covered-by bus, and uncovered flag. Available to both
+     monitors (via "Edit" button) and admins. -->
 <script lang="ts">
 	import Modal from './Modal.svelte';
 	import type { BusWithStatus } from '$lib/state/buses.svelte';

@@ -584,7 +584,8 @@ export async function markBusDeparted(
 }
 
 /**
- * Mark a bus as covered by another bus. Also marks as arrived.
+ * Mark a bus as covered by another bus. Does not set arrival_time;
+ * the bus remains pending until explicitly marked arrived.
  */
 export async function markBusCovered(
 	spreadsheetId: string,
@@ -592,11 +593,10 @@ export async function markBusCovered(
 	coveredBy: string,
 	userEmail: string
 ): Promise<void> {
-	const arrivalTime = getCurrentTimeEastern();
 	await updateBusStatus(
 		spreadsheetId,
 		busNumber,
-		{ covered_by: coveredBy, arrival_time: arrivalTime },
+		{ covered_by: coveredBy },
 		userEmail
 	);
 }
@@ -668,26 +668,6 @@ export async function getBusDataBatched(
 export async function getAvailableDates(spreadsheetId: string): Promise<string[]> {
 	const info = await getSpreadsheetInfo(spreadsheetId);
 	return info.sheets.filter((name) => /^\d{4}-\d{2}-\d{2}$/.test(name)).sort();
-}
-
-/**
- * Get historical data for statistics.
- */
-export async function getHistoricalData(
-	spreadsheetId: string,
-	startDate: string,
-	endDate: string
-): Promise<Record<string, BusStatus[]>> {
-	const dates = await getAvailableDates(spreadsheetId);
-	const filteredDates = dates.filter((d) => d >= startDate && d <= endDate);
-
-	const result: Record<string, BusStatus[]> = {};
-
-	for (const date of filteredDates) {
-		result[date] = await getBusStatus(spreadsheetId, date);
-	}
-
-	return result;
 }
 
 /**

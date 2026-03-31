@@ -13,6 +13,7 @@ node_modules
 Thumbs.db
 
 # Env
+.env
 .env.*
 !.env.example
 !.env.test
@@ -24,3 +25,4 @@ vite.config.ts.timestamp-*
 # Test artifacts
 playwright-report/
 test-results/
+.claude/

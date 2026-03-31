@@ -1,3 +1,6 @@
+<!-- Active bus tracking view for bus monitors. Shows buses with action
+     buttons (Arrived, Departed, Cover, Edit). Uses view transitions for
+     smooth bus card movement between sections. -->
 <script lang="ts">
 	import { onMount, onDestroy } from 'svelte';
 	import {
@@ -15,7 +18,7 @@
 		updateBusStatus
 	} from '$lib/services/sheets-api';
 	import { getCurrentTimeEastern } from '$lib/utils/time';
-	import { getCurrentUser, getAccessToken, requestAccessToken } from '$lib/state/auth.svelte';
+	import { getCurrentUser, getAccessToken, requestAccessToken, waitForAccessToken } from '$lib/state/auth.svelte';
 	import BusList from './BusList.svelte';
 	import CoverModal from './CoverModal.svelte';
 	import EditBusModal from './EditBusModal.svelte';
@@ -49,13 +52,7 @@
 	async function handleAuthorize() {
 		isAuthorizing = true;
 		requestAccessToken();
-
-		const startTime = Date.now();
-		while (!getAccessToken() && Date.now() - startTime < 30000) {
-			await new Promise(resolve => setTimeout(resolve, 500));
-		}
-
-		if (getAccessToken()) {
+		if (await waitForAccessToken()) {
 			needsAuthorization = false;
 			await loadBuses(sheetId);
 			startPolling(sheetId, 10000);
@@ -119,7 +116,6 @@
 		if (!user || !coveringBus) return;
 
 		const busToUpdate = coveringBus;
-		const time = getCurrentTimeEastern();
 
 		// Close modal before starting the transition
 		coveringBus = null;
@@ -127,7 +123,7 @@
 		try {
 			actionError = null;
 			withViewTransition(() =>
-				updateBusLocally(busToUpdate, { covered_by: coveringBusNumber, arrival_time: time })
+				updateBusLocally(busToUpdate, { covered_by: coveringBusNumber })
 			);
 			await markBusCovered(sheetId, busToUpdate, coveringBusNumber, user.email);
 		} catch (e) {
