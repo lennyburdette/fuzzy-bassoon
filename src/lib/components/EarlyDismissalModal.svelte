@@ -1,6 +1,6 @@
 <!-- Modal for setting early dismissal time overrides. Admins pick a date
-     and override arrival time; the change applies to all selected buses and
-     is stored as a per-date entry in the bus config. -->
+     and override arrival time; the change applies to all selected buses'
+     afternoon (PM) session and is stored as a per-date entry in the bus config. -->
 <script lang="ts">
 	import Modal from './Modal.svelte';
 	import type { BusConfig } from '$lib/services/sheets-api';
@@ -135,7 +135,7 @@
 								class="h-4 w-4 rounded border-bus-300 text-blue-600 focus:ring-blue-500"
 							/>
 							<span class="text-stone-900">Bus {bus.bus_number}</span>
-							<span class="text-sm text-stone-500">({bus.expected_arrival_time})</span>
+							<span class="text-sm text-stone-500">({bus.pm_expected_arrival_time})</span>
 						</label>
 					{/each}
 				</div>

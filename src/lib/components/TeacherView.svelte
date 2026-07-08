@@ -3,7 +3,7 @@
 <script lang="ts">
 	import { onMount, onDestroy } from 'svelte';
 	import { getBusState, loadBuses, startPolling, stopPolling, getBusesWithActions } from '$lib/state/buses.svelte';
-	import { getAccessToken, requestAccessToken, waitForAccessToken } from '$lib/state/auth.svelte';
+	import { ensureFreshToken, requestInteractiveToken } from '$lib/state/auth.svelte';
 	import BusList from './BusList.svelte';
 
 	interface Props {
@@ -17,7 +17,8 @@
 	let isAuthorizing = $state(false);
 
 	onMount(async () => {
-		if (!getAccessToken()) {
+		// Try to obtain a token silently (no popup) before asking the user
+		if (!(await ensureFreshToken())) {
 			needsAuthorization = true;
 			return;
 		}
@@ -31,8 +32,7 @@
 
 	async function handleAuthorize() {
 		isAuthorizing = true;
-		requestAccessToken();
-		if (await waitForAccessToken()) {
+		if (await requestInteractiveToken()) {
 			needsAuthorization = false;
 			await loadBuses(sheetId);
 			startPolling(sheetId, 10000);

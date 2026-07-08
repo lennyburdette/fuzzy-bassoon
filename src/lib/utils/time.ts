@@ -6,6 +6,45 @@
 export const TIMEZONE = 'America/New_York';
 
 /**
+ * A tracking session. Buses run twice a day: morning drop-off (AM) and
+ * afternoon dismissal (PM). Each session has its own daily sheet.
+ */
+export type Session = 'AM' | 'PM';
+
+/**
+ * Get the current session based on US Eastern time.
+ * Before noon is the morning (AM) session; noon and later is afternoon (PM).
+ */
+export function getCurrentSessionEastern(): Session {
+	const hour = parseInt(
+		new Date().toLocaleTimeString('en-US', {
+			timeZone: TIMEZONE,
+			hour: '2-digit',
+			hour12: false
+		}),
+		10
+	);
+	return hour < 12 ? 'AM' : 'PM';
+}
+
+/**
+ * Get the sheet (tab) name for a date + session, e.g. "2026-07-08 AM".
+ */
+export function getSessionSheetName(date: string, session: Session): string {
+	return `${date} ${session}`;
+}
+
+/**
+ * Parse a session sheet name back into date + session.
+ * Returns null if the name is not a session sheet.
+ */
+export function parseSessionSheetName(name: string): { date: string; session: Session } | null {
+	const match = name.match(/^(\d{4}-\d{2}-\d{2}) (AM|PM)$/);
+	if (!match) return null;
+	return { date: match[1], session: match[2] as Session };
+}
+
+/**
  * Get the current time formatted as HH:MM in US Eastern timezone.
  * Used for recording arrival/departure times.
  */

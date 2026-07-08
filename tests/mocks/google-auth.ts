@@ -6,6 +6,15 @@ export interface MockUser {
 	picture?: string;
 }
 
+export interface MockAuthOptions {
+	/**
+	 * When true, silent token requests (prompt: '') fail as they would when
+	 * the user's Google session has fully expired; only interactive requests
+	 * succeed. Used to exercise the "Authorize Access" fallback.
+	 */
+	silentAuthFails?: boolean;
+}
+
 const DEFAULT_USER: MockUser = {
 	email: 'teacher@school.edu',
 	name: 'Test Teacher',
@@ -16,7 +25,13 @@ const DEFAULT_USER: MockUser = {
  * Mock Google Identity Services for testing.
  * Intercepts the GIS library load and provides a mock implementation.
  */
-export async function mockGoogleAuth(page: Page, user: MockUser = DEFAULT_USER) {
+export async function mockGoogleAuth(
+	page: Page,
+	user: MockUser = DEFAULT_USER,
+	options: MockAuthOptions = {}
+) {
+	const silentAuthFails = options.silentAuthFails ?? false;
+
 	// Mock the Google Identity Services script
 	await page.route('https://accounts.google.com/gsi/client', async (route: Route) => {
 		await route.fulfill({
@@ -50,10 +65,19 @@ export async function mockGoogleAuth(page: Page, user: MockUser = DEFAULT_USER) 
 						oauth2: {
 							initTokenClient: function(config) {
 								return {
-									requestAccessToken: function() {
+									requestAccessToken: function(overrideConfig) {
+										const isSilent = !!(overrideConfig && overrideConfig.prompt === '');
+										if (isSilent && ${silentAuthFails}) {
+											// Simulate an expired Google session: silent
+											// requests fail without any UI
+											if (config.callback) {
+												config.callback({ error: 'interaction_required' });
+											}
+											return;
+										}
 										if (config.callback) {
 											config.callback({
-												access_token: 'mock_access_token_${Date.now()}',
+												access_token: 'mock_access_token_' + Date.now(),
 												token_type: 'Bearer',
 												expires_in: 3600,
 												scope: config.scope

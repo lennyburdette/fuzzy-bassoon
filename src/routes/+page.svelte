@@ -10,12 +10,12 @@
 		initializeAuth,
 		getAuthState,
 		signOut,
-		getAccessToken,
-		requestAccessToken,
-		waitForAccessToken
+		ensureFreshToken,
+		requestInteractiveToken
 	} from '$lib/state/auth.svelte';
 	import { createSpreadsheet } from '$lib/services/sheets-api';
 	import { resetBusState } from '$lib/state/buses.svelte';
+	import SessionToggle from '$lib/components/SessionToggle.svelte';
 
 	const GOOGLE_CLIENT_ID = import.meta.env.VITE_GOOGLE_CLIENT_ID || '';
 
@@ -57,11 +57,10 @@
 	}
 
 	async function handleCreateTracker() {
-		if (!getAccessToken()) {
+		if (!(await ensureFreshToken())) {
 			createError = null;
 			isCreatingTracker = true;
-			requestAccessToken();
-			if (!await waitForAccessToken()) {
+			if (!(await requestInteractiveToken())) {
 				createError = 'Authorization was not completed. Please try again.';
 				isCreatingTracker = false;
 				return;
@@ -308,6 +307,11 @@
 							Change
 						</button>
 					</div>
+				</div>
+
+				<!-- Session selector (AM = morning drop-off, PM = afternoon dismissal) -->
+				<div class="mb-4 flex justify-center px-4 pt-3 sm:justify-start sm:px-0 sm:pt-0">
+					<SessionToggle />
 				</div>
 
 				{#if selectedRole === 'teacher'}

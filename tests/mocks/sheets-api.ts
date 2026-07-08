@@ -2,7 +2,8 @@ import type { Page, Route } from '@playwright/test';
 
 export interface BusConfig {
 	bus_number: string;
-	expected_arrival_time: string;
+	am_expected_arrival_time: string;
+	pm_expected_arrival_time: string;
 	early_dismissal_overrides?: Record<string, string>; // date (YYYY-MM-DD) -> override time (HH:MM)
 }
 
@@ -19,11 +20,18 @@ export interface BusStatus {
 export interface MockSheetData {
 	spreadsheetId: string;
 	config: BusConfig[];
-	dailyData: Record<string, BusStatus[]>; // keyed by date YYYY-MM-DD
+	sessionData: Record<string, BusStatus[]>; // keyed by session sheet name, e.g. "2026-07-08 AM"
 	statisticsData?: string[][]; // raw Statistics sheet data (key-value rows)
 }
 
+export interface MockSheetsOptions {
+	/** Respond 401 to the first API request (to exercise the silent-refresh retry). */
+	failFirstRequestWith401?: boolean;
+}
+
 const SHEETS_API_BASE = 'https://sheets.googleapis.com/v4/spreadsheets';
+
+const SESSION_SHEET_PATTERN = /^\d{4}-\d{2}-\d{2} (AM|PM)$/;
 
 function parseRowRange(range: string): { startRow: number; endRow: number } | null {
 	const match = range.match(/!A(\d+):[A-Z]+(\d+)/);
@@ -32,25 +40,107 @@ function parseRowRange(range: string): { startRow: number; endRow: number } | nu
 }
 
 /**
+ * Extract the sheet name from an A1-notation range, handling quoted names
+ * like "'2026-07-08 AM'!A2:G100".
+ */
+function sheetNameFromRange(range: string): string {
+	const match = range.match(/^'([^']+)'!/) || range.match(/^([^!]+)!/);
+	return match ? match[1] : '';
+}
+
+function configToRows(config: BusConfig[]): string[][] {
+	return config.map((c) => [
+		c.bus_number,
+		c.am_expected_arrival_time,
+		c.pm_expected_arrival_time,
+		c.early_dismissal_overrides && Object.keys(c.early_dismissal_overrides).length > 0
+			? JSON.stringify(c.early_dismissal_overrides)
+			: ''
+	]);
+}
+
+function statusToRows(buses: BusStatus[]): string[][] {
+	return buses.map((b) => [
+		b.bus_number,
+		b.covered_by,
+		b.is_uncovered ? 'TRUE' : 'FALSE',
+		b.arrival_time,
+		b.departure_time,
+		b.last_modified_by,
+		b.last_modified_at
+	]);
+}
+
+const CONFIG_HEADER = [
+	'bus_number',
+	'am_expected_arrival_time',
+	'pm_expected_arrival_time',
+	'early_dismissal_overrides'
+];
+
+const STATUS_HEADER = [
+	'bus_number',
+	'covered_by',
+	'is_uncovered',
+	'arrival_time',
+	'departure_time',
+	'last_modified_by',
+	'last_modified_at'
+];
+
+function sliceForRange(values: string[][], rangePath: string): string[][] {
+	const rowRange = parseRowRange(rangePath);
+	if (!rowRange) return values;
+	if (rowRange.startRow <= 1) {
+		return values.slice(0, Math.max(0, rowRange.endRow - 1));
+	}
+	const startIndex = Math.max(0, rowRange.startRow - 2);
+	const endIndex = Math.max(0, rowRange.endRow - 2);
+	return values.slice(startIndex, endIndex + 1);
+}
+
+/**
  * Mock Google Sheets API for testing.
  * Intercepts API calls and returns mock data.
  */
-export async function mockSheetsApi(page: Page, initialData: MockSheetData) {
+export async function mockSheetsApi(
+	page: Page,
+	initialData: MockSheetData,
+	options: MockSheetsOptions = {}
+) {
 	const data = JSON.parse(JSON.stringify(initialData)) as MockSheetData;
+	let shouldFailWith401 = options.failFirstRequestWith401 ?? false;
 
 	// Mock spreadsheet metadata (get spreadsheet info)
 	await page.route(`${SHEETS_API_BASE}/${data.spreadsheetId}**`, async (route: Route) => {
 		const url = new URL(route.request().url());
 		const method = route.request().method();
 		const rangePath = decodeURIComponent(url.pathname.split('/values/')[1] || '');
+		const sheetName = sheetNameFromRange(rangePath);
 		const includeHeader = rangePath.includes('!A1');
+
+		if (shouldFailWith401) {
+			shouldFailWith401 = false;
+			await route.fulfill({
+				status: 401,
+				contentType: 'application/json',
+				body: JSON.stringify({
+					error: {
+						code: 401,
+						message: 'Request had invalid authentication credentials.',
+						status: 'UNAUTHENTICATED'
+					}
+				})
+			});
+			return;
+		}
 
 		if (method === 'GET' && !url.pathname.includes('/values/')) {
 			// Get spreadsheet metadata
 			const sheets = [
 				{ properties: { title: 'Config', sheetId: 0 } },
-				...Object.keys(data.dailyData).map((date, i) => ({
-					properties: { title: date, sheetId: i + 1 }
+				...Object.keys(data.sessionData).map((name, i) => ({
+					properties: { title: name, sheetId: i + 1 }
 				}))
 			];
 			// Include Statistics sheet if it has data
@@ -68,14 +158,14 @@ export async function mockSheetsApi(page: Page, initialData: MockSheetData) {
 					sheets
 				})
 			});
-		} else if (url.pathname.includes('/values/Statistics')) {
+		} else if (sheetName === 'Statistics') {
 			// Get or update Statistics data
 			if (method === 'GET') {
 				await route.fulfill({
 					status: 200,
 					contentType: 'application/json',
 					body: JSON.stringify({
-						range: 'Statistics!A:D',
+						range: rangePath,
 						values: data.statisticsData || []
 					})
 				});
@@ -88,39 +178,18 @@ export async function mockSheetsApi(page: Page, initialData: MockSheetData) {
 					body: JSON.stringify({ updatedCells: body.values?.length || 0 })
 				});
 			}
-		} else if (url.pathname.includes('/values/Config')) {
+		} else if (sheetName === 'Config') {
 			// Get or update config data
 			if (method === 'GET') {
-				const values = data.config.map((c) => [
-					c.bus_number,
-					c.expected_arrival_time,
-					c.early_dismissal_overrides &&
-					Object.keys(c.early_dismissal_overrides).length > 0
-						? JSON.stringify(c.early_dismissal_overrides)
-						: ''
-				]);
-				const rowRange = parseRowRange(rangePath);
-				let payloadValues = values;
-				if (rowRange) {
-					if (rowRange.startRow <= 1) {
-						payloadValues = values.slice(0, Math.max(0, rowRange.endRow - 1));
-					} else {
-						const startIndex = Math.max(0, rowRange.startRow - 2);
-						const endIndex = Math.max(0, rowRange.endRow - 2);
-						payloadValues = values.slice(startIndex, endIndex + 1);
-					}
-				}
+				let payloadValues = sliceForRange(configToRows(data.config), rangePath);
 				if (includeHeader) {
-					payloadValues = [
-						['bus_number', 'expected_arrival_time', 'early_dismissal_overrides'],
-						...payloadValues
-					];
+					payloadValues = [CONFIG_HEADER, ...payloadValues];
 				}
 				await route.fulfill({
 					status: 200,
 					contentType: 'application/json',
 					body: JSON.stringify({
-						range: rangePath || 'Config!A2:C100',
+						range: rangePath || 'Config!A2:D100',
 						values: payloadValues
 					})
 				});
@@ -130,8 +199,9 @@ export async function mockSheetsApi(page: Page, initialData: MockSheetData) {
 					// Update config (skip header row)
 					data.config = body.values.slice(1).map((row: string[]) => ({
 						bus_number: row[0],
-						expected_arrival_time: row[1],
-						early_dismissal_overrides: row[2] ? JSON.parse(row[2]) : {}
+						am_expected_arrival_time: row[1] || '',
+						pm_expected_arrival_time: row[2] || '',
+						early_dismissal_overrides: row[3] ? JSON.parse(row[3]) : {}
 					}));
 				}
 				await route.fulfill({
@@ -140,52 +210,19 @@ export async function mockSheetsApi(page: Page, initialData: MockSheetData) {
 					body: JSON.stringify({ updatedCells: body.values?.length || 0 })
 				});
 			}
-		} else if (url.pathname.match(/\/values\/\d{4}-\d{2}-\d{2}/)) {
-			// Get or update daily data
-			const dateMatch = url.pathname.match(/(\d{4}-\d{2}-\d{2})/);
-			const date = dateMatch ? dateMatch[1] : '';
-
+		} else if (SESSION_SHEET_PATTERN.test(sheetName)) {
+			// Get or update session data
 			if (method === 'GET') {
-				const dayData = data.dailyData[date] || [];
-				const values = dayData.map((b) => [
-					b.bus_number,
-					b.covered_by,
-					b.is_uncovered ? 'TRUE' : 'FALSE',
-					b.arrival_time,
-					b.departure_time,
-					b.last_modified_by,
-					b.last_modified_at
-				]);
-				const rowRange = parseRowRange(rangePath);
-				let payloadValues = values;
-				if (rowRange) {
-					if (rowRange.startRow <= 1) {
-						payloadValues = values.slice(0, Math.max(0, rowRange.endRow - 1));
-					} else {
-						const startIndex = Math.max(0, rowRange.startRow - 2);
-						const endIndex = Math.max(0, rowRange.endRow - 2);
-						payloadValues = values.slice(startIndex, endIndex + 1);
-					}
-				}
+				const sessionBuses = data.sessionData[sheetName] || [];
+				let payloadValues = sliceForRange(statusToRows(sessionBuses), rangePath);
 				if (includeHeader) {
-					payloadValues = [
-						[
-							'bus_number',
-							'covered_by',
-							'is_uncovered',
-							'arrival_time',
-							'departure_time',
-							'last_modified_by',
-							'last_modified_at'
-						],
-						...payloadValues
-					];
+					payloadValues = [STATUS_HEADER, ...payloadValues];
 				}
 				await route.fulfill({
 					status: 200,
 					contentType: 'application/json',
 					body: JSON.stringify({
-						range: rangePath || `${date}!A2:G100`,
+						range: rangePath,
 						values: payloadValues
 					})
 				});
@@ -197,8 +234,8 @@ export async function mockSheetsApi(page: Page, initialData: MockSheetData) {
 					if (rowRange && rowRange.startRow === rowRange.endRow) {
 						const index = rowRange.startRow - 2;
 						if (index >= 0) {
-							data.dailyData[date] = data.dailyData[date] || [];
-							data.dailyData[date][index] = {
+							data.sessionData[sheetName] = data.sessionData[sheetName] || [];
+							data.sessionData[sheetName][index] = {
 								bus_number: rows[0]?.[0] || '',
 								covered_by: rows[0]?.[1] || '',
 								is_uncovered: rows[0]?.[2] === 'TRUE',
@@ -209,7 +246,7 @@ export async function mockSheetsApi(page: Page, initialData: MockSheetData) {
 							};
 						}
 					} else {
-						data.dailyData[date] = rows.map((row: string[]) => ({
+						data.sessionData[sheetName] = rows.map((row: string[]) => ({
 							bus_number: row[0],
 							covered_by: row[1] || '',
 							is_uncovered: row[2] === 'TRUE',
@@ -274,33 +311,16 @@ export async function mockSheetsApi(page: Page, initialData: MockSheetData) {
 			const ranges = url.searchParams.getAll('ranges');
 
 			const valueRanges = ranges.map((range) => {
-				if (range.includes('Config')) {
+				const name = sheetNameFromRange(range);
+				if (name === 'Config') {
 					return {
 						range: range,
-						values: data.config.map((c) => [
-							c.bus_number,
-							c.expected_arrival_time,
-							c.early_dismissal_overrides &&
-							Object.keys(c.early_dismissal_overrides).length > 0
-								? JSON.stringify(c.early_dismissal_overrides)
-								: ''
-						])
+						values: configToRows(data.config)
 					};
 				} else {
-					const dateMatch = range.match(/(\d{4}-\d{2}-\d{2})/);
-					const date = dateMatch ? dateMatch[1] : '';
-					const dayData = data.dailyData[date] || [];
 					return {
 						range: range,
-						values: dayData.map((b) => [
-							b.bus_number,
-							b.covered_by,
-							b.is_uncovered ? 'TRUE' : 'FALSE',
-							b.arrival_time,
-							b.departure_time,
-							b.last_modified_by,
-							b.last_modified_at
-						])
+						values: statusToRows(data.sessionData[name] || [])
 					};
 				}
 			});
@@ -330,9 +350,9 @@ export async function mockSheetsApi(page: Page, initialData: MockSheetData) {
 						if (!data.statisticsData) {
 							data.statisticsData = [];
 						}
-					} else if (!data.dailyData[sheetTitle]) {
-						// Initialize new daily sheet with buses from config
-						data.dailyData[sheetTitle] = data.config.map((c) => ({
+					} else if (!data.sessionData[sheetTitle]) {
+						// Initialize new session sheet with buses from config
+						data.sessionData[sheetTitle] = data.config.map((c) => ({
 							bus_number: c.bus_number,
 							covered_by: '',
 							is_uncovered: false,

@@ -66,10 +66,10 @@ test.describe('Admin Setup', () => {
 		await expect(page.getByRole('cell', { name: '42' })).toBeVisible();
 	});
 
-	test('admin can set expected arrival times for all buses', async ({ page }) => {
+	test('admin can set expected arrival times for both sessions', async ({ page }) => {
 		const sheetData = {
 			...newSchoolSetup,
-			config: [{ bus_number: '42', expected_arrival_time: '' }]
+			config: [{ bus_number: '42', am_expected_arrival_time: '', pm_expected_arrival_time: '' }]
 		};
 		await signInAsAdmin(page, {
 			email: 'admin@lincoln.edu',
@@ -80,9 +80,10 @@ test.describe('Admin Setup', () => {
 
 		await page.locator('nav').getByRole('button', { name: /configure buses/i }).click();
 
-		// Set arrival time for bus 42
+		// Set morning and afternoon arrival times for bus 42
 		const busRow = page.getByRole('row', { name: /42/i });
-		await busRow.locator('input[type="time"]').fill('15:30');
+		await busRow.getByLabel(/am arrival time for bus 42/i).fill('07:30');
+		await busRow.getByLabel(/pm arrival time for bus 42/i).fill('15:30');
 		await page.getByRole('button', { name: /save configuration/i }).click();
 
 		// Should show saved confirmation
@@ -93,8 +94,8 @@ test.describe('Admin Setup', () => {
 		const sheetData = {
 			...newSchoolSetup,
 			config: [
-				{ bus_number: '1', expected_arrival_time: '15:00' },
-				{ bus_number: '2', expected_arrival_time: '15:05' }
+				{ bus_number: '1', am_expected_arrival_time: '07:00', pm_expected_arrival_time: '15:00' },
+				{ bus_number: '2', am_expected_arrival_time: '07:05', pm_expected_arrival_time: '15:05' }
 			]
 		};
 		await signInAsAdmin(page, {
@@ -138,9 +139,9 @@ test.describe('Admin Setup', () => {
 		const sheetData = {
 			...newSchoolSetup,
 			config: [
-				{ bus_number: '1', expected_arrival_time: '15:00' },
-				{ bus_number: '2', expected_arrival_time: '15:05' },
-				{ bus_number: '3', expected_arrival_time: '15:10' }
+				{ bus_number: '1', am_expected_arrival_time: '07:00', pm_expected_arrival_time: '15:00' },
+				{ bus_number: '2', am_expected_arrival_time: '07:05', pm_expected_arrival_time: '15:05' },
+				{ bus_number: '3', am_expected_arrival_time: '07:10', pm_expected_arrival_time: '15:10' }
 			]
 		};
 		await signInAsAdmin(page, {
@@ -178,12 +179,14 @@ test.describe('Admin Setup', () => {
 			config: [
 				{
 					bus_number: '1',
-					expected_arrival_time: '15:00',
+					am_expected_arrival_time: '07:00',
+					pm_expected_arrival_time: '15:00',
 					early_dismissal_overrides: { '2025-02-15': '14:00' }
 				},
 				{
 					bus_number: '2',
-					expected_arrival_time: '15:05',
+					am_expected_arrival_time: '07:05',
+					pm_expected_arrival_time: '15:05',
 					early_dismissal_overrides: { '2025-02-15': '14:00' }
 				}
 			]
@@ -212,7 +215,7 @@ test.describe('Admin Setup', () => {
 	test('early dismissal save button is disabled without required fields', async ({ page }) => {
 		const sheetData = {
 			...newSchoolSetup,
-			config: [{ bus_number: '1', expected_arrival_time: '15:00' }]
+			config: [{ bus_number: '1', am_expected_arrival_time: '07:00', pm_expected_arrival_time: '15:00' }]
 		};
 		await signInAsAdmin(page, {
 			email: 'admin@lincoln.edu',

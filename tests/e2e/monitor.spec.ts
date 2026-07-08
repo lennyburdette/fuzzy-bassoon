@@ -127,6 +127,61 @@ test.describe('Bus Monitor View', () => {
 	});
 });
 
+test.describe('Bus Monitor Sessions', () => {
+	test('monitor lands on the session implied by the clock', async ({ page }) => {
+		await signInAsMonitor(page, {
+			email: 'monitor@lincoln.edu',
+			name: 'Bus Monitor',
+			sheetData: populatedTracker,
+			view: 'monitor',
+			session: 'AM'
+		});
+
+		const toggle = page.getByTestId('session-toggle');
+		await expect(toggle.getByRole('button', { name: 'AM' })).toHaveAttribute(
+			'aria-pressed',
+			'true'
+		);
+		await expect(toggle.getByRole('button', { name: 'PM' })).toHaveAttribute(
+			'aria-pressed',
+			'false'
+		);
+	});
+
+	test('morning and afternoon sessions are tracked separately', async ({ page }) => {
+		await signInAsMonitor(page, {
+			email: 'monitor@lincoln.edu',
+			name: 'Bus Monitor',
+			sheetData: populatedTracker,
+			view: 'monitor'
+			// defaults to the PM session
+		});
+
+		const toggle = page.getByTestId('session-toggle');
+
+		// PM fixture data: bus 1 departed, bus 3 pending
+		await expect(page.getByTestId('bus-1')).toHaveAttribute('data-status', 'departed');
+		await expect(page.getByTestId('bus-3')).toHaveAttribute('data-status', 'pending');
+
+		// Switch to the morning session — a fresh sheet, so every bus is pending
+		await toggle.getByRole('button', { name: 'AM' }).click();
+		await expect(page.getByTestId('bus-1')).toHaveAttribute('data-status', 'pending');
+
+		// Mark bus 3 arrived in the morning session
+		await page.getByTestId('bus-3').getByRole('button', { name: /arrived/i }).click();
+		await expect(page.getByTestId('bus-3')).toHaveAttribute('data-status', 'arrived');
+
+		// Back to the afternoon: bus 3 is still pending there, bus 1 departed
+		await toggle.getByRole('button', { name: 'PM' }).click();
+		await expect(page.getByTestId('bus-3')).toHaveAttribute('data-status', 'pending');
+		await expect(page.getByTestId('bus-1')).toHaveAttribute('data-status', 'departed');
+
+		// And the morning arrival is still recorded
+		await toggle.getByRole('button', { name: 'AM' }).click();
+		await expect(page.getByTestId('bus-3')).toHaveAttribute('data-status', 'arrived');
+	});
+});
+
 test.describe('Bus Monitor Mobile', () => {
 	test.use({ viewport: { width: 375, height: 667 } });
 

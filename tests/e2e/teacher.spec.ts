@@ -1,8 +1,6 @@
 import { test, expect } from '@playwright/test';
 import { signInAsTeacher } from '../helpers/test-setup';
-import { getTodayEastern } from '../helpers/time';
-import { mockGoogleAuth } from '../mocks/google-auth';
-import { mockSheetsApi } from '../mocks/sheets-api';
+import { getTodaySessionSheet } from '../helpers/time';
 import { populatedTracker } from '../fixtures/populated-tracker';
 
 test.describe('Teacher View', () => {
@@ -62,18 +60,12 @@ test.describe('Teacher View', () => {
 
 	test('view auto-refreshes to show updated statuses', async ({ page }) => {
 		// This test needs direct access to sheetData to modify it during the test
-		await mockGoogleAuth(page, {
+		const sheetData = await signInAsTeacher(page, {
 			email: 'teacher@lincoln.edu',
-			name: 'Jane Teacher'
+			name: 'Jane Teacher',
+			sheetData: populatedTracker,
+			view: 'teacher'
 		});
-		const sheetData = await mockSheetsApi(page, populatedTracker);
-
-		await page.goto(`/?sheet=${populatedTracker.spreadsheetId}&view=teacher`);
-		await page.getByTestId('google-signin-button').click();
-		await page.getByRole('button', { name: /teacher/i }).click();
-		const authorizeButton = page.getByRole('button', { name: /authorize access/i });
-		await authorizeButton.click();
-		await expect(authorizeButton).toBeHidden({ timeout: 10000 });
 
 		// Initially Bus 3 is pending
 		await expect(
@@ -81,8 +73,9 @@ test.describe('Teacher View', () => {
 		).toBeVisible();
 
 		// Simulate bus 3 arriving (modify mock data)
-		const today = getTodayEastern();
-		const bus3 = sheetData.dailyData[today]?.find((b) => b.bus_number === '3');
+		const bus3 = sheetData
+			?.sessionData[getTodaySessionSheet('PM')]
+			?.find((b) => b.bus_number === '3');
 		if (bus3) {
 			bus3.arrival_time = '15:12';
 		}
