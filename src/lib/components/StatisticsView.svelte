@@ -1,7 +1,8 @@
-<!-- Statistics dashboard for admins. Loads a pre-generated report from the
-     Statistics sheet and renders summary cards, three Chart.js charts (daily
-     trend, on-time doughnut, per-bus delay bar), and data tables. Admins can
-     trigger a full recalculation from all historical daily sheets. -->
+<!-- Statistics dashboard for admins, focused on one question: does the
+     school's uncovered-bus rate exceed the district average (1.6%)?
+     Shows a headline rate with verdict, a per-session trend chart against
+     the district line, and the list of uncovered incidents. Admins can
+     trigger a full recalculation from all historical session sheets. -->
 <script lang="ts">
 	import { onMount } from 'svelte';
 	import type { ChartConfiguration } from 'chart.js';
@@ -12,7 +13,7 @@
 		ensureStatisticsSheet,
 		type StatisticsReport
 	} from '$lib/services/sheets-api';
-	import { calculateStatistics } from '$lib/utils/stats';
+	import { calculateStatistics, DISTRICT_AVERAGE_UNCOVERED_RATE } from '$lib/utils/stats';
 	import ChartWrapper from './ChartWrapper.svelte';
 
 	interface Props {
@@ -48,7 +49,7 @@
 		try {
 			await ensureStatisticsSheet(sheetId);
 			const historicalData = await getAllHistoricalData(sheetId);
-			const newReport = calculateStatistics(historicalData);
+			const newReport = calculateStatistics({ sessionData: historicalData.sessionData });
 			await saveStatisticsReport(sheetId, newReport);
 			report = newReport;
 		} catch (e) {
@@ -72,41 +73,33 @@
 
 	function formatShortDate(dateStr: string): string {
 		if (!dateStr) return '';
-		const [year, month, day] = dateStr.split('-');
+		const [, month, day] = dateStr.split('-');
 		return `${month}/${day}`;
 	}
 
-	// Daily trend chart configuration
-	let dailyTrendConfig = $derived<ChartConfiguration | null>(
-		report && report.dailyCounts.length > 0
+	// Uncovered-rate trend against the district average line
+	let trendConfig = $derived<ChartConfiguration | null>(
+		report && report.sessionRates.length > 0
 			? {
 					type: 'line',
 					data: {
-						labels: report.dailyCounts.map((d) => formatShortDate(d.date)),
+						labels: report.sessionRates.map((r) => `${formatShortDate(r.date)} ${r.session}`),
 						datasets: [
 							{
-								label: 'On-Time',
-								data: report.dailyCounts.map((d) => d.onTime),
-								borderColor: 'rgb(34, 197, 94)',
-								backgroundColor: 'rgba(34, 197, 94, 0.1)',
-								fill: true,
-								tension: 0.3
-							},
-							{
-								label: 'Late',
-								data: report.dailyCounts.map((d) => d.late),
-								borderColor: 'rgb(249, 115, 22)',
-								backgroundColor: 'rgba(249, 115, 22, 0.1)',
-								fill: true,
-								tension: 0.3
-							},
-							{
-								label: 'Uncovered',
-								data: report.dailyCounts.map((d) => d.uncovered),
+								label: 'Uncovered Rate %',
+								data: report.sessionRates.map((r) => r.ratePct),
 								borderColor: 'rgb(239, 68, 68)',
 								backgroundColor: 'rgba(239, 68, 68, 0.1)',
 								fill: true,
 								tension: 0.3
+							},
+							{
+								label: `District Average (${DISTRICT_AVERAGE_UNCOVERED_RATE}%)`,
+								data: report.sessionRates.map(() => DISTRICT_AVERAGE_UNCOVERED_RATE),
+								borderColor: 'rgb(120, 113, 108)',
+								borderDash: [6, 6],
+								pointRadius: 0,
+								fill: false
 							}
 						]
 					},
@@ -116,87 +109,15 @@
 						plugins: {
 							title: {
 								display: true,
-								text: 'Daily Arrivals Trend'
+								text: 'Uncovered Rate by Session'
 							}
 						},
 						scales: {
 							y: {
 								beginAtZero: true,
-								ticks: {
-									stepSize: 1
-								}
-							}
-						}
-					}
-				}
-			: null
-	);
-
-	// On-time pie chart configuration
-	let onTimePieConfig = $derived<ChartConfiguration | null>(
-		report
-			? {
-					type: 'doughnut',
-					data: {
-						labels: ['On-Time', 'Late'],
-						datasets: [
-							{
-								data: [report.overallOnTimePct, 100 - report.overallOnTimePct],
-								backgroundColor: ['rgb(34, 197, 94)', 'rgb(249, 115, 22)'],
-								borderWidth: 0
-							}
-						]
-					},
-					options: {
-						responsive: true,
-						maintainAspectRatio: false,
-						plugins: {
-							title: {
-								display: true,
-								text: 'Overall On-Time Rate'
-							}
-						}
-					}
-				}
-			: null
-	);
-
-	// Per-bus delay chart configuration
-	let busDelayConfig = $derived<ChartConfiguration | null>(
-		report && report.perBusStats.length > 0
-			? {
-					type: 'bar',
-					data: {
-						labels: report.perBusStats.map((b) => `Bus ${b.busNumber}`),
-						datasets: [
-							{
-								label: 'Avg Delay (min)',
-								data: report.perBusStats.map((b) => b.avgDelayMinutes),
-								backgroundColor: 'rgba(59, 130, 246, 0.8)'
-							},
-							{
-								label: 'Max Delay (min)',
-								data: report.perBusStats.map((b) => b.maxDelayMinutes),
-								backgroundColor: 'rgba(59, 130, 246, 0.3)'
-							}
-						]
-					},
-					options: {
-						responsive: true,
-						maintainAspectRatio: false,
-						indexAxis: 'y',
-						plugins: {
-							title: {
-								display: true,
-								text: 'Delay by Bus'
-							}
-						},
-						scales: {
-							x: {
-								beginAtZero: true,
 								title: {
 									display: true,
-									text: 'Minutes'
+									text: '% of scheduled runs'
 								}
 							}
 						}
@@ -216,7 +137,7 @@
 					Last generated: <span class="font-medium">{formatDate(report.generatedAt)}</span>
 				</p>
 				<p class="text-sm text-stone-500">
-					Data range: {report.startDate} to {report.endDate} ({report.totalDays} days)
+					Data range: {report.startDate} to {report.endDate} ({report.totalSessions} sessions)
 				</p>
 			{:else if !isLoading}
 				<p class="mt-1 text-sm text-stone-500">No report has been generated yet.</p>
@@ -264,87 +185,50 @@
 			</p>
 		</div>
 	{:else}
-		<!-- Summary Cards -->
-		<div class="grid grid-cols-1 gap-4 sm:grid-cols-3">
-			<div class="rounded-lg bg-blue-50 p-4">
-				<p class="text-sm font-medium text-blue-600">Total Days</p>
-				<p class="mt-1 text-3xl font-bold text-blue-900">{report.totalDays}</p>
-			</div>
-			<div class="rounded-lg bg-green-50 p-4">
-				<p class="text-sm font-medium text-green-600">On-Time Rate</p>
-				<p class="mt-1 text-3xl font-bold text-green-900">{report.overallOnTimePct}%</p>
-			</div>
-			<div class="rounded-lg bg-red-50 p-4">
-				<p class="text-sm font-medium text-red-600">Uncovered Incidents</p>
-				<p class="mt-1 text-3xl font-bold text-red-900">{report.uncoveredIncidents.length}</p>
-			</div>
+		<!-- Headline: uncovered rate vs district average -->
+		<div
+			data-testid="uncovered-rate-headline"
+			class="rounded-lg border-2 p-6 text-center {report.exceedsDistrictAverage
+				? 'border-red-300 bg-red-50'
+				: 'border-green-300 bg-green-50'}"
+		>
+			<p class="text-sm font-medium uppercase tracking-wide {report.exceedsDistrictAverage
+					? 'text-red-600'
+					: 'text-green-700'}"
+			>
+				Uncovered Bus Rate
+			</p>
+			<p
+				data-testid="uncovered-rate"
+				class="mt-2 text-6xl font-bold {report.exceedsDistrictAverage
+					? 'text-red-700'
+					: 'text-green-800'}"
+			>
+				{report.uncoveredRatePct}%
+			</p>
+			<p
+				data-testid="district-verdict"
+				class="mt-3 text-lg font-medium {report.exceedsDistrictAverage
+					? 'text-red-700'
+					: 'text-green-800'}"
+			>
+				{#if report.exceedsDistrictAverage}
+					Above the district average of {DISTRICT_AVERAGE_UNCOVERED_RATE}%
+				{:else}
+					At or below the district average of {DISTRICT_AVERAGE_UNCOVERED_RATE}%
+				{/if}
+			</p>
+			<p class="mt-2 text-sm text-stone-600">
+				{report.totalUncovered} uncovered of {report.totalScheduledRuns} scheduled bus runs
+			</p>
 		</div>
 
-		<!-- Charts Section -->
-		<div class="grid grid-cols-1 gap-6 lg:grid-cols-2">
-			<!-- Daily Trend Chart -->
-			{#if dailyTrendConfig}
-				<div class="rounded-lg border border-bus-200 bg-white p-4">
-					<ChartWrapper config={dailyTrendConfig} height="250px" />
-				</div>
-			{/if}
-
-			<!-- On-Time Pie Chart -->
-			{#if onTimePieConfig}
-				<div class="rounded-lg border border-bus-200 bg-white p-4">
-					<ChartWrapper config={onTimePieConfig} height="250px" />
-				</div>
-			{/if}
-		</div>
-
-		<!-- Per-Bus Delay Chart -->
-		{#if busDelayConfig}
+		<!-- Trend chart -->
+		{#if trendConfig}
 			<div class="rounded-lg border border-bus-200 bg-white p-4">
-				<ChartWrapper
-					config={busDelayConfig}
-					height={`${Math.max(200, report.perBusStats.length * 40)}px`}
-				/>
+				<ChartWrapper config={trendConfig} height="250px" />
 			</div>
 		{/if}
-
-		<!-- Per-Bus Statistics Table -->
-		<div class="rounded-lg border border-bus-200">
-			<h3 class="border-b border-bus-200 bg-bus-50 px-4 py-3 font-medium text-stone-900">
-				Per-Bus Performance
-			</h3>
-			<div class="overflow-x-auto">
-				<table class="w-full">
-					<thead class="bg-bus-50">
-						<tr>
-							<th class="px-4 py-3 text-left text-sm font-medium text-stone-700">Bus</th>
-							<th class="px-4 py-3 text-right text-sm font-medium text-stone-700">Avg Delay</th>
-							<th class="px-4 py-3 text-right text-sm font-medium text-stone-700">Max Delay</th>
-							<th class="px-4 py-3 text-right text-sm font-medium text-stone-700">On-Time %</th>
-						</tr>
-					</thead>
-					<tbody class="divide-y divide-bus-200">
-						{#each report.perBusStats as bus}
-							<tr>
-								<td class="px-4 py-3 font-medium text-stone-900">Bus {bus.busNumber}</td>
-								<td class="px-4 py-3 text-right text-stone-600">{bus.avgDelayMinutes} min</td>
-								<td class="px-4 py-3 text-right text-stone-600">{bus.maxDelayMinutes} min</td>
-								<td class="px-4 py-3 text-right">
-									<span
-										class="inline-block rounded-full px-2 py-1 text-sm {bus.onTimePct >= 90
-											? 'bg-green-100 text-green-800'
-											: bus.onTimePct >= 75
-												? 'bg-yellow-100 text-yellow-800'
-												: 'bg-red-100 text-red-800'}"
-									>
-										{bus.onTimePct}%
-									</span>
-								</td>
-							</tr>
-						{/each}
-					</tbody>
-				</table>
-			</div>
-		</div>
 
 		<!-- Uncovered Incidents -->
 		{#if report.uncoveredIncidents.length > 0}
@@ -356,25 +240,7 @@
 					{#each report.uncoveredIncidents as incident}
 						<li class="flex items-center justify-between px-4 py-3">
 							<span class="font-medium text-stone-900">Bus {incident.busNumber}</span>
-							<span class="text-stone-600">{incident.date}</span>
-						</li>
-					{/each}
-				</ul>
-			</div>
-		{/if}
-
-		<!-- Coverage Summary -->
-		{#if report.coveragePairs.length > 0}
-			<div class="rounded-lg border border-bus-200">
-				<h3 class="border-b border-bus-200 bg-bus-50 px-4 py-3 font-medium text-stone-900">
-					Coverage Summary
-				</h3>
-				<ul class="divide-y divide-bus-200">
-					{#each report.coveragePairs as pair}
-						<li class="px-4 py-3 text-stone-700">
-							Bus <span class="font-medium">{pair.coveringBus}</span> covered Bus
-							<span class="font-medium">{pair.coveredBus}</span>:
-							<span class="text-blue-600">{pair.count} time{pair.count !== 1 ? 's' : ''}</span>
+							<span class="text-stone-600">{incident.date} {incident.session}</span>
 						</li>
 					{/each}
 				</ul>

@@ -34,33 +34,44 @@ function loadStoredUser(): User | null {
 	}
 }
 
-function loadStoredToken(): string | null {
+function loadStoredToken(): { token: string; expiresAt: number } | null {
 	if (typeof window === 'undefined') return null;
 	try {
 		const expiry = localStorage.getItem(STORAGE_KEY_TOKEN_EXPIRY);
-		if (expiry && Date.now() > parseInt(expiry, 10)) {
+		const expiresAt = expiry ? parseInt(expiry, 10) : 0;
+		if (Date.now() > expiresAt) {
 			// Token expired, clear it
 			localStorage.removeItem(STORAGE_KEY_TOKEN);
 			localStorage.removeItem(STORAGE_KEY_TOKEN_EXPIRY);
 			return null;
 		}
-		return localStorage.getItem(STORAGE_KEY_TOKEN);
+		const token = localStorage.getItem(STORAGE_KEY_TOKEN);
+		return token ? { token, expiresAt } : null;
 	} catch {
 		return null;
 	}
 }
 
+const storedToken = loadStoredToken();
+
 // Create reactive state using $state rune
 let user = $state<User | null>(loadStoredUser());
-let accessToken = $state<string | null>(loadStoredToken());
+let accessToken = $state<string | null>(storedToken?.token ?? null);
 let isLoading = $state(true);
 let error = $state<string | null>(null);
+
+// Expiry timestamp (ms) of the current access token
+let tokenExpiresAt = storedToken?.expiresAt ?? 0;
 
 // Token client for getting access tokens
 let tokenClient: google.accounts.oauth2.TokenClient | null = null;
 
 // Timer for proactive silent token refresh
 let refreshTimer: ReturnType<typeof setTimeout> | null = null;
+
+// Resolver for the in-flight acquireToken() promise, if any
+let pendingTokenResolve: ((ok: boolean) => void) | null = null;
+let pendingTokenTimer: ReturnType<typeof setTimeout> | null = null;
 
 /**
  * Save user to localStorage
@@ -78,12 +89,12 @@ function saveUser(u: User | null): void {
  * Save access token to localStorage with expiry
  */
 function saveToken(token: string | null, expiresIn?: number): void {
+	// Default to 1 hour if not specified
+	tokenExpiresAt = token ? Date.now() + (expiresIn || 3600) * 1000 : 0;
 	if (typeof window === 'undefined') return;
 	if (token) {
 		localStorage.setItem(STORAGE_KEY_TOKEN, token);
-		// Default to 1 hour if not specified
-		const expiryMs = Date.now() + (expiresIn || 3600) * 1000;
-		localStorage.setItem(STORAGE_KEY_TOKEN_EXPIRY, expiryMs.toString());
+		localStorage.setItem(STORAGE_KEY_TOKEN_EXPIRY, tokenExpiresAt.toString());
 	} else {
 		localStorage.removeItem(STORAGE_KEY_TOKEN);
 		localStorage.removeItem(STORAGE_KEY_TOKEN_EXPIRY);
@@ -138,10 +149,17 @@ export function initializeAuth(clientId: string): void {
 		tokenClient = window.google.accounts.oauth2.initTokenClient({
 			client_id: clientId,
 			scope: 'https://www.googleapis.com/auth/spreadsheets https://www.googleapis.com/auth/drive.file',
-			callback: handleTokenResponse
+			callback: handleTokenResponse,
+			error_callback: handleTokenError
 		});
 
 		isLoading = false;
+
+		// If the user is already signed in but the token expired (e.g. overnight),
+		// warm up a fresh token silently so no authorization prompt is needed.
+		if (user && !hasValidToken()) {
+			void trySilentTokenAcquisition();
+		}
 	};
 
 	// If Google script is already loaded, initialize immediately
@@ -203,20 +221,21 @@ function scheduleTokenRefresh(expiresIn: number = 3600): void {
 	if (refreshInMs <= 0) return;
 
 	refreshTimer = setTimeout(() => {
-		silentRefresh();
+		void trySilentTokenAcquisition();
 	}, refreshInMs);
 }
 
 /**
- * Attempt a silent (no-prompt) token refresh.
- * If the user still has a valid Google session this completes without any UI.
- * On failure the error is stored in state but the user is not immediately signed out —
- * the next API call that receives a 401 can prompt for re-auth instead.
+ * Resolve the in-flight acquireToken() promise, if any.
  */
-function silentRefresh(): void {
-	if (tokenClient) {
-		tokenClient.requestAccessToken({ prompt: '' });
+function settlePendingTokenRequest(ok: boolean): void {
+	if (pendingTokenTimer !== null) {
+		clearTimeout(pendingTokenTimer);
+		pendingTokenTimer = null;
 	}
+	const resolve = pendingTokenResolve;
+	pendingTokenResolve = null;
+	resolve?.(ok);
 }
 
 /**
@@ -229,31 +248,78 @@ function handleTokenResponse(response: google.accounts.oauth2.TokenResponse): vo
 		error = null;
 		// Schedule a proactive silent refresh before this token expires
 		scheduleTokenRefresh(response.expires_in);
-	} else if (response.error) {
-		error = response.error;
+		settlePendingTokenRequest(true);
+	} else {
+		if (response.error) {
+			error = response.error;
+		}
+		settlePendingTokenRequest(false);
 	}
 }
 
 /**
- * Request an access token for API calls.
+ * Handle errors raised outside the token callback (popup blocked/closed, etc).
  */
-export function requestAccessToken(): void {
-	if (tokenClient) {
-		tokenClient.requestAccessToken();
-	}
+function handleTokenError(err: { type?: string; message?: string }): void {
+	error = err.message || err.type || 'Authorization failed';
+	settlePendingTokenRequest(false);
 }
 
 /**
- * Poll until an access token is available or the timeout elapses.
- * Call requestAccessToken() before this to trigger the OAuth popup.
- * Returns true if a token was obtained, false if it timed out.
+ * Whether the current access token exists and is not about to expire.
  */
-export async function waitForAccessToken(timeoutMs: number = 30000): Promise<boolean> {
-	const startTime = Date.now();
-	while (!getAccessToken() && Date.now() - startTime < timeoutMs) {
-		await new Promise((resolve) => setTimeout(resolve, 500));
+export function hasValidToken(): boolean {
+	return accessToken !== null && Date.now() < tokenExpiresAt - 30 * 1000;
+}
+
+/**
+ * Request an access token and resolve once the attempt settles.
+ * Silent mode (interactive: false) uses prompt: '' — it succeeds with no UI
+ * while the user's Google session and prior consent are still valid.
+ * Interactive mode may open the Google consent popup.
+ */
+function acquireToken(interactive: boolean): Promise<boolean> {
+	if (!tokenClient) return Promise.resolve(false);
+	return new Promise((resolve) => {
+		// A newer request supersedes any in-flight one
+		settlePendingTokenRequest(false);
+		pendingTokenResolve = resolve;
+		// Silent attempts settle fast; interactive ones wait on the user
+		pendingTokenTimer = setTimeout(
+			() => settlePendingTokenRequest(false),
+			interactive ? 60000 : 8000
+		);
+		tokenClient!.requestAccessToken(interactive ? {} : { prompt: '' });
+	});
+}
+
+/**
+ * Attempt a silent (no-UI) token acquisition.
+ */
+export function trySilentTokenAcquisition(): Promise<boolean> {
+	return acquireToken(false);
+}
+
+/**
+ * Request a token interactively (may open the Google consent popup).
+ */
+export function requestInteractiveToken(): Promise<boolean> {
+	return acquireToken(true);
+}
+
+/**
+ * Ensure a usable access token exists, refreshing silently if needed.
+ * Returns false only when silent acquisition fails — callers should then
+ * surface an interactive "Authorize" action.
+ */
+export async function ensureFreshToken(): Promise<boolean> {
+	if (hasValidToken()) return true;
+	if (accessToken) {
+		// Expired token still in memory — drop it before re-acquiring
+		accessToken = null;
+		saveToken(null);
 	}
-	return getAccessToken() !== null;
+	return trySilentTokenAcquisition();
 }
 
 /**
@@ -277,6 +343,7 @@ export function renderSignInButton(element: HTMLElement): void {
  */
 export function signOut(): void {
 	clearRefreshTimer();
+	settlePendingTokenRequest(false);
 	user = null;
 	accessToken = null;
 	saveUser(null);
@@ -376,6 +443,7 @@ declare global {
 					client_id: string;
 					scope: string;
 					callback: (response: TokenResponse) => void;
+					error_callback?: (error: { type?: string; message?: string }) => void;
 				}): TokenClient;
 			}
 		}

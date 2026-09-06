@@ -3,7 +3,7 @@
      monitors (via "Edit" button) and admins. -->
 <script lang="ts">
 	import Modal from './Modal.svelte';
-	import type { BusWithStatus } from '$lib/state/buses.svelte';
+	import { getSelectedSession, type BusWithStatus } from '$lib/state/buses.svelte';
 
 	interface Props {
 		bus: BusWithStatus;
@@ -58,7 +58,7 @@
 <Modal open={true} {onClose} titleId="edit-modal-title" variant="centered">
 	<div class="w-full rounded-t-xl bg-white p-6 shadow-xl sm:mx-4 sm:max-w-sm sm:rounded-lg">
 		<h2 id="edit-modal-title" class="mb-4 text-lg font-semibold text-stone-900">
-			Edit Bus {bus.bus_number} for {getTodayDate()}
+			Edit Bus {bus.bus_number} for {getTodayDate()} ({getSelectedSession()})
 		</h2>
 
 		<div class="space-y-4">

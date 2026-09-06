@@ -15,6 +15,7 @@ import {
 	getEffectiveArrivalTime
 } from '$lib/services/sheets-api';
 import { clearAllCaches, getRecommendedPollInterval } from '$lib/services/sheets-cache';
+import { getCurrentSessionEastern, type Session } from '$lib/utils/time';
 
 export type ViewMode = 'monitor' | 'teacher' | 'admin';
 export type BusSection = 'pending' | 'arrived' | 'done';
@@ -74,6 +75,10 @@ let isLoading = $state(false);
 let error = $state<string | null>(null);
 let lastUpdated = $state<Date | null>(null);
 
+// The tracking session (AM/PM) currently shown. Defaults to the session
+// implied by the current Eastern time so monitors land on the right one.
+let session = $state<Session>(getCurrentSessionEastern());
+
 // Polling interval handle
 let pollInterval: ReturnType<typeof setInterval> | null = null;
 
@@ -93,6 +98,7 @@ const noActions: BusActions = {
 function mergeBusData(
 	configData: BusConfig[],
 	statusData: BusStatus[],
+	sess: Session,
 	date: string = getTodayDate()
 ): BusWithStatus[] {
 	return configData.map((c) => {
@@ -107,12 +113,14 @@ function mergeBusData(
 		};
 
 		const derivedStatus = deriveBusStatus(status);
-		const effectiveTime = getEffectiveArrivalTime(c, date);
-		const hasOverride = effectiveTime !== c.expected_arrival_time;
+		const expectedTime =
+			sess === 'AM' ? c.am_expected_arrival_time : c.pm_expected_arrival_time;
+		const effectiveTime = getEffectiveArrivalTime(c, date, sess);
+		const hasOverride = effectiveTime !== expectedTime;
 
 		return {
 			...status,
-			expected_arrival_time: c.expected_arrival_time,
+			expected_arrival_time: expectedTime,
 			effective_arrival_time: effectiveTime,
 			has_override: hasOverride,
 			derivedStatus,
@@ -129,20 +137,28 @@ function mergeBusData(
 export async function loadBuses(spreadsheetId: string, date: string = getTodayDate()): Promise<void> {
 	isLoading = true;
 	error = null;
+	currentSpreadsheetId = spreadsheetId;
+
+	// Capture the session this load is for, so a mid-flight session switch
+	// doesn't write stale data into the new session's view
+	const sess = session;
 
 	try {
-		const result = await getBusDataBatched(spreadsheetId, date);
+		const result = await getBusDataBatched(spreadsheetId, sess, date);
+
+		if (sess !== session) return;
 
 		config = result.config;
 
 		if (result.sheetExists && result.status) {
 			// Sheet exists, we have both config and status
-			buses = mergeBusData(result.config, result.status, date);
+			buses = mergeBusData(result.config, result.status, sess, date);
 		} else {
 			// Sheet doesn't exist - create it and fetch status
-			await ensureDailySheet(spreadsheetId, date);
-			const statusData = await getBusStatus(spreadsheetId, date);
-			buses = mergeBusData(result.config, statusData, date);
+			await ensureDailySheet(spreadsheetId, sess, date);
+			const statusData = await getBusStatus(spreadsheetId, sess, date);
+			if (sess !== session) return;
+			buses = mergeBusData(result.config, statusData, sess, date);
 		}
 
 		lastUpdated = new Date();
@@ -161,9 +177,11 @@ export async function refreshBuses(
 	date: string = getTodayDate()
 ): Promise<void> {
 	// Don't show loading state for refresh
+	const sess = session;
 	try {
-		const statusData = await getBusStatus(spreadsheetId, date);
-		buses = mergeBusData(config, statusData, date);
+		const statusData = await getBusStatus(spreadsheetId, sess, date);
+		if (sess !== session) return;
+		buses = mergeBusData(config, statusData, sess, date);
 		lastUpdated = new Date();
 		error = null;
 	} catch (e) {
@@ -173,6 +191,25 @@ export async function refreshBuses(
 
 // Store the spreadsheet ID for adaptive polling restarts
 let currentSpreadsheetId: string | null = null;
+
+/**
+ * Get the currently selected tracking session.
+ */
+export function getSelectedSession(): Session {
+	return session;
+}
+
+/**
+ * Switch to a different tracking session and reload bus data for it.
+ */
+export async function setSession(newSession: Session): Promise<void> {
+	if (newSession === session) return;
+	session = newSession;
+	buses = [];
+	if (currentSpreadsheetId) {
+		await loadBuses(currentSpreadsheetId);
+	}
+}
 
 /**
  * Start polling for updates.
@@ -305,6 +342,7 @@ export interface BusStateAccessor {
 	readonly isLoading: boolean;
 	readonly error: string | null;
 	readonly lastUpdated: Date | null;
+	readonly session: Session;
 }
 
 /**
@@ -326,6 +364,9 @@ export function getBusState(): BusStateAccessor {
 		},
 		get lastUpdated() {
 			return lastUpdated;
+		},
+		get session() {
+			return session;
 		}
 	};
 }
@@ -340,5 +381,6 @@ export function resetBusState(): void {
 	isLoading = false;
 	error = null;
 	lastUpdated = null;
+	session = getCurrentSessionEastern();
 	clearAllCaches();
 }

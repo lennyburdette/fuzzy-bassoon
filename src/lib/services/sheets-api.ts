@@ -3,7 +3,11 @@
  * Uses the Sheets API v4 via fetch with OAuth access tokens.
  */
 
-import { getAccessToken } from '$lib/state/auth.svelte';
+import {
+	getAccessToken,
+	ensureFreshToken,
+	trySilentTokenAcquisition
+} from '$lib/state/auth.svelte';
 import {
 	isSheetCached,
 	cacheSheetExists,
@@ -13,14 +17,21 @@ import {
 	recordRateLimitHit,
 	recordSuccessfulCall
 } from './sheets-cache';
-import { getCurrentTimeEastern, getTodayDateEastern } from '$lib/utils/time';
+import {
+	getCurrentTimeEastern,
+	getTodayDateEastern,
+	getSessionSheetName,
+	parseSessionSheetName,
+	type Session
+} from '$lib/utils/time';
 
 const SHEETS_API_BASE = 'https://sheets.googleapis.com/v4/spreadsheets';
 const DRIVE_API_BASE = 'https://www.googleapis.com/drive/v3/files';
 
 export interface BusConfig {
 	bus_number: string;
-	expected_arrival_time: string;
+	am_expected_arrival_time: string;
+	pm_expected_arrival_time: string;
 	early_dismissal_overrides?: Record<string, string>; // date (YYYY-MM-DD) -> override time (HH:MM)
 }
 
@@ -34,35 +45,31 @@ export interface BusStatus {
 	last_modified_at: string;
 }
 
+export interface UncoveredIncident {
+	date: string;
+	session: Session;
+	busNumber: string;
+}
+
+export interface SessionRate {
+	date: string;
+	session: Session;
+	scheduled: number;
+	uncovered: number;
+	ratePct: number;
+}
+
 export interface StatisticsReport {
 	generatedAt: string;
 	startDate: string;
 	endDate: string;
-	totalDays: number;
-	totalBusArrivals: number;
-	overallOnTimePct: number;
-	perBusStats: {
-		busNumber: string;
-		avgDelayMinutes: number;
-		maxDelayMinutes: number;
-		onTimePct: number;
-	}[];
-	uncoveredIncidents: {
-		date: string;
-		busNumber: string;
-	}[];
-	coveragePairs: {
-		coveringBus: string;
-		coveredBus: string;
-		count: number;
-	}[];
-	dailyCounts: {
-		date: string;
-		total: number;
-		onTime: number;
-		late: number;
-		uncovered: number;
-	}[];
+	totalSessions: number;
+	totalScheduledRuns: number;
+	totalUncovered: number;
+	uncoveredRatePct: number;
+	exceedsDistrictAverage: boolean;
+	uncoveredIncidents: UncoveredIncident[];
+	sessionRates: SessionRate[];
 }
 
 export type BusDerivedStatus = 'pending' | 'arrived' | 'departed' | 'uncovered';
@@ -76,6 +83,14 @@ export function deriveBusStatus(bus: BusStatus): BusDerivedStatus {
 	if (bus.departure_time) return 'departed';
 	if (bus.arrival_time) return 'arrived';
 	return 'pending';
+}
+
+/**
+ * Build an A1-notation range for a sheet, quoting the sheet name so that
+ * names with spaces (like "2026-07-08 AM") are valid.
+ */
+function sheetRange(sheetName: string, cells: string): string {
+	return `'${sheetName}'!${cells}`;
 }
 
 /**
@@ -112,15 +127,40 @@ async function fetchWithRateLimitTracking(
 }
 
 /**
+ * Authenticated fetch for Google APIs.
+ * Refreshes the access token silently when it is missing or expired, and on a
+ * 401 response attempts one silent re-acquisition and retries the request.
+ */
+async function apiFetch(url: string, init: RequestInit = {}): Promise<Response> {
+	await ensureFreshToken();
+
+	let response = await fetchWithRateLimitTracking(url, {
+		...init,
+		headers: getAuthHeaders()
+	});
+
+	if (response.status === 401) {
+		// Token rejected server-side — try one silent refresh, then retry
+		if (await trySilentTokenAcquisition()) {
+			response = await fetchWithRateLimitTracking(url, {
+				...init,
+				headers: getAuthHeaders()
+			});
+		}
+	}
+
+	return response;
+}
+
+/**
  * Set domain-wide read/write permission on a file.
  * Anyone in the specified domain will have writer access.
  * Returns true if successful, false if the domain doesn't support this permission type
  * (e.g., personal Gmail accounts).
  */
 async function setDomainPermission(fileId: string, domain: string): Promise<boolean> {
-	const response = await fetch(`${DRIVE_API_BASE}/${fileId}/permissions`, {
+	const response = await apiFetch(`${DRIVE_API_BASE}/${fileId}/permissions`, {
 		method: 'POST',
-		headers: getAuthHeaders(),
 		body: JSON.stringify({
 			type: 'domain',
 			role: 'writer',
@@ -145,6 +185,26 @@ async function setDomainPermission(fileId: string, domain: string): Promise<bool
 	return true;
 }
 
+const CONFIG_HEADERS = [
+	'bus_number',
+	'am_expected_arrival_time',
+	'pm_expected_arrival_time',
+	'early_dismissal_overrides'
+];
+const CONFIG_DATA_RANGE = 'Config!A2:D100';
+
+/**
+ * Parse a raw Config sheet row into a BusConfig object.
+ */
+function parseConfigRow(row: string[]): BusConfig {
+	return {
+		bus_number: row[0] || '',
+		am_expected_arrival_time: row[1] || '',
+		pm_expected_arrival_time: row[2] || '',
+		early_dismissal_overrides: row[3] ? JSON.parse(row[3]) : {}
+	};
+}
+
 /**
  * Create a new Google Sheet for bus tracking.
  * If userEmail is provided, shares the spreadsheet with the user's domain.
@@ -154,9 +214,8 @@ export async function createSpreadsheet(
 	userEmail?: string
 ): Promise<string> {
 	// Create the spreadsheet with initial sheets
-	const response = await fetch(SHEETS_API_BASE, {
+	const response = await apiFetch(SHEETS_API_BASE, {
 		method: 'POST',
-		headers: getAuthHeaders(),
 		body: JSON.stringify({
 			properties: {
 				title
@@ -183,7 +242,7 @@ export async function createSpreadsheet(
 	const spreadsheetId = data.spreadsheetId;
 
 	// Add headers to Config sheet
-	await updateSheetValues(spreadsheetId, 'Config!A1:B1', [['bus_number', 'expected_arrival_time']]);
+	await updateSheetValues(spreadsheetId, 'Config!A1:D1', [CONFIG_HEADERS]);
 
 	// Share with user's domain if email provided
 	if (userEmail) {
@@ -202,9 +261,7 @@ export async function createSpreadsheet(
 export async function getSpreadsheetInfo(
 	spreadsheetId: string
 ): Promise<{ title: string; sheets: string[] }> {
-	const response = await fetchWithRateLimitTracking(`${SHEETS_API_BASE}/${spreadsheetId}`, {
-		headers: getAuthHeaders()
-	});
+	const response = await apiFetch(`${SHEETS_API_BASE}/${spreadsheetId}`);
 
 	if (!response.ok) {
 		const error = await response.json();
@@ -222,11 +279,8 @@ export async function getSpreadsheetInfo(
  * Read values from a sheet.
  */
 async function getSheetValues(spreadsheetId: string, range: string): Promise<string[][]> {
-	const response = await fetchWithRateLimitTracking(
-		`${SHEETS_API_BASE}/${spreadsheetId}/values/${encodeURIComponent(range)}`,
-		{
-			headers: getAuthHeaders()
-		}
+	const response = await apiFetch(
+		`${SHEETS_API_BASE}/${spreadsheetId}/values/${encodeURIComponent(range)}`
 	);
 
 	if (!response.ok) {
@@ -248,12 +302,7 @@ async function batchGetValues(spreadsheetId: string, ranges: string[]): Promise<
 		params.append('ranges', range);
 	}
 
-	const response = await fetchWithRateLimitTracking(
-		`${SHEETS_API_BASE}/${spreadsheetId}/values:batchGet?${params}`,
-		{
-			headers: getAuthHeaders()
-		}
-	);
+	const response = await apiFetch(`${SHEETS_API_BASE}/${spreadsheetId}/values:batchGet?${params}`);
 
 	if (!response.ok) {
 		const error = await response.json();
@@ -275,11 +324,10 @@ async function updateSheetValues(
 	range: string,
 	values: string[][]
 ): Promise<void> {
-	const response = await fetch(
+	const response = await apiFetch(
 		`${SHEETS_API_BASE}/${spreadsheetId}/values/${encodeURIComponent(range)}?valueInputOption=USER_ENTERED`,
 		{
 			method: 'PUT',
-			headers: getAuthHeaders(),
 			body: JSON.stringify({ values })
 		}
 	);
@@ -294,9 +342,8 @@ async function updateSheetValues(
  * Add a new sheet (tab) to the spreadsheet.
  */
 async function addSheet(spreadsheetId: string, sheetTitle: string): Promise<void> {
-	const response = await fetch(`${SHEETS_API_BASE}/${spreadsheetId}:batchUpdate`, {
+	const response = await apiFetch(`${SHEETS_API_BASE}/${spreadsheetId}:batchUpdate`, {
 		method: 'POST',
-		headers: getAuthHeaders(),
 		body: JSON.stringify({
 			requests: [
 				{
@@ -326,21 +373,19 @@ async function addSheet(spreadsheetId: string, sheetTitle: string): Promise<void
  * Get the bus configuration.
  */
 export async function getBusConfig(spreadsheetId: string): Promise<BusConfig[]> {
-	const values = await getSheetValues(spreadsheetId, 'Config!A2:C100');
-
-	return values.map((row) => ({
-		bus_number: row[0] || '',
-		expected_arrival_time: row[1] || '',
-		early_dismissal_overrides: row[2] ? JSON.parse(row[2]) : {}
-	}));
+	const values = await getSheetValues(spreadsheetId, CONFIG_DATA_RANGE);
+	return values.map(parseConfigRow);
 }
 
 /**
- * Get the effective arrival time for a bus on a given date.
- * Returns the override time if one exists, otherwise the expected arrival time.
+ * Get the effective expected arrival time for a bus on a given date + session.
+ * Early dismissal overrides apply to the afternoon (PM) session only.
  */
-export function getEffectiveArrivalTime(bus: BusConfig, date: string): string {
-	return bus.early_dismissal_overrides?.[date] || bus.expected_arrival_time;
+export function getEffectiveArrivalTime(bus: BusConfig, date: string, session: Session): string {
+	if (session === 'AM') {
+		return bus.am_expected_arrival_time;
+	}
+	return bus.early_dismissal_overrides?.[date] || bus.pm_expected_arrival_time;
 }
 
 /**
@@ -348,17 +393,18 @@ export function getEffectiveArrivalTime(bus: BusConfig, date: string): string {
  */
 export async function saveBusConfig(spreadsheetId: string, config: BusConfig[]): Promise<void> {
 	const values = [
-		['bus_number', 'expected_arrival_time', 'early_dismissal_overrides'],
+		CONFIG_HEADERS,
 		...config.map((c) => [
 			c.bus_number,
-			c.expected_arrival_time,
+			c.am_expected_arrival_time,
+			c.pm_expected_arrival_time,
 			c.early_dismissal_overrides && Object.keys(c.early_dismissal_overrides).length > 0
 				? JSON.stringify(c.early_dismissal_overrides)
 				: ''
 		])
 	];
 
-	await updateSheetValues(spreadsheetId, 'Config!A1:C' + (config.length + 1), values);
+	await updateSheetValues(spreadsheetId, 'Config!A1:D' + (config.length + 1), values);
 }
 
 /**
@@ -369,32 +415,36 @@ export function getTodayDate(): string {
 }
 
 /**
- * Ensure a daily sheet exists and has data for all configured buses.
+ * Ensure a session sheet (e.g. "2026-07-08 AM") exists and has data for all
+ * configured buses.
  * Uses caching to avoid repeated API calls once sheet existence is confirmed.
  */
 export async function ensureDailySheet(
 	spreadsheetId: string,
+	session: Session,
 	date: string = getTodayDate()
 ): Promise<void> {
+	const sheetName = getSessionSheetName(date, session);
+
 	// Fast path: if we already know the sheet exists, skip all checks
-	if (isSheetCached(spreadsheetId, date)) {
+	if (isSheetCached(spreadsheetId, sheetName)) {
 		return;
 	}
 
-	// Deduplicate concurrent calls for the same spreadsheet/date
-	return deduplicateRequest(`ensureDailySheet:${spreadsheetId}:${date}`, async () => {
+	// Deduplicate concurrent calls for the same spreadsheet/sheet
+	return deduplicateRequest(`ensureDailySheet:${spreadsheetId}:${sheetName}`, async () => {
 		const info = await getSpreadsheetInfo(spreadsheetId);
-		const sheetExists = info.sheets.includes(date);
+		const sheetExists = info.sheets.includes(sheetName);
 
 		if (!sheetExists) {
 			// Sheet doesn't exist - create it
-			await addSheet(spreadsheetId, date);
+			await addSheet(spreadsheetId, sheetName);
 		}
 
 		// Get config and current sheet data
 		const config = await getBusConfig(spreadsheetId);
 		const existingValues = sheetExists
-			? await getSheetValues(spreadsheetId, `${date}!A1:G${config.length + 1}`)
+			? await getSheetValues(spreadsheetId, sheetRange(sheetName, `A1:G${config.length + 1}`))
 			: [];
 
 		// Check if sheet needs to be populated/repaired
@@ -451,11 +501,15 @@ export async function ensureDailySheet(
 				})
 			];
 
-			await updateSheetValues(spreadsheetId, `${date}!A1:G${config.length + 1}`, values);
+			await updateSheetValues(
+				spreadsheetId,
+				sheetRange(sheetName, `A1:G${config.length + 1}`),
+				values
+			);
 		}
 
 		// Cache that the sheet now exists and is valid
-		cacheSheetExists(spreadsheetId, date);
+		cacheSheetExists(spreadsheetId, sheetName);
 	});
 }
 
@@ -475,23 +529,26 @@ function parseStatusRow(row: string[]): BusStatus {
 }
 
 /**
- * Get bus status for a specific date.
+ * Get bus status for a specific session (and date).
  * Uses deduplication to prevent concurrent identical requests.
  */
 export async function getBusStatus(
 	spreadsheetId: string,
+	session: Session,
 	date: string = getTodayDate()
 ): Promise<BusStatus[]> {
-	await ensureDailySheet(spreadsheetId, date);
+	await ensureDailySheet(spreadsheetId, session, date);
+
+	const sheetName = getSessionSheetName(date, session);
 
 	// Deduplicate concurrent calls
-	return deduplicateRequest(`getBusStatus:${spreadsheetId}:${date}`, async () => {
-		const values = await getSheetValues(spreadsheetId, `${date}!A2:G100`);
+	return deduplicateRequest(`getBusStatus:${spreadsheetId}:${sheetName}`, async () => {
+		const values = await getSheetValues(spreadsheetId, sheetRange(sheetName, 'A2:G100'));
 
 		const statuses = values.map(parseStatusRow);
 
 		// Update row index cache for future updates
-		updateRowIndexCache(spreadsheetId, date, statuses);
+		updateRowIndexCache(spreadsheetId, sheetName, statuses);
 
 		return statuses;
 	});
@@ -506,16 +563,19 @@ export async function updateBusStatus(
 	busNumber: string,
 	updates: Partial<BusStatus>,
 	userEmail: string,
+	session: Session,
 	date: string = getTodayDate()
 ): Promise<void> {
-	await ensureDailySheet(spreadsheetId, date);
+	await ensureDailySheet(spreadsheetId, session, date);
+
+	const sheetName = getSessionSheetName(date, session);
 
 	// Try to get row index from cache first
-	let rowIndex = getCachedRowIndex(spreadsheetId, date, busNumber);
+	let rowIndex = getCachedRowIndex(spreadsheetId, sheetName, busNumber);
 
 	if (rowIndex === null) {
 		// Cache miss - need to fetch the data to find the row
-		const currentData = await getBusStatus(spreadsheetId, date);
+		const currentData = await getBusStatus(spreadsheetId, session, date);
 		rowIndex = currentData.findIndex((b) => b.bus_number === busNumber);
 
 		if (rowIndex === -1) {
@@ -527,7 +587,10 @@ export async function updateBusStatus(
 	const sheetRow = rowIndex + 2;
 
 	// Read just this single row to get current values for merging
-	const currentRowValues = await getSheetValues(spreadsheetId, `${date}!A${sheetRow}:G${sheetRow}`);
+	const currentRowValues = await getSheetValues(
+		spreadsheetId,
+		sheetRange(sheetName, `A${sheetRow}:G${sheetRow}`)
+	);
 
 	if (!currentRowValues.length) {
 		throw new Error(`Bus ${busNumber} not found at row ${sheetRow}`);
@@ -544,7 +607,7 @@ export async function updateBusStatus(
 	};
 
 	// Write back single row
-	await updateSheetValues(spreadsheetId, `${date}!A${sheetRow}:G${sheetRow}`, [
+	await updateSheetValues(spreadsheetId, sheetRange(sheetName, `A${sheetRow}:G${sheetRow}`), [
 		[
 			updatedBus.bus_number,
 			updatedBus.covered_by,
@@ -564,10 +627,11 @@ export async function markBusArrived(
 	spreadsheetId: string,
 	busNumber: string,
 	userEmail: string,
+	session: Session,
 	arrivalTime?: string
 ): Promise<void> {
 	const time = arrivalTime || getCurrentTimeEastern();
-	await updateBusStatus(spreadsheetId, busNumber, { arrival_time: time }, userEmail);
+	await updateBusStatus(spreadsheetId, busNumber, { arrival_time: time }, userEmail, session);
 }
 
 /**
@@ -577,10 +641,11 @@ export async function markBusDeparted(
 	spreadsheetId: string,
 	busNumber: string,
 	userEmail: string,
+	session: Session,
 	departureTime?: string
 ): Promise<void> {
 	const time = departureTime || getCurrentTimeEastern();
-	await updateBusStatus(spreadsheetId, busNumber, { departure_time: time }, userEmail);
+	await updateBusStatus(spreadsheetId, busNumber, { departure_time: time }, userEmail, session);
 }
 
 /**
@@ -591,14 +656,10 @@ export async function markBusCovered(
 	spreadsheetId: string,
 	busNumber: string,
 	coveredBy: string,
-	userEmail: string
+	userEmail: string,
+	session: Session
 ): Promise<void> {
-	await updateBusStatus(
-		spreadsheetId,
-		busNumber,
-		{ covered_by: coveredBy },
-		userEmail
-	);
+	await updateBusStatus(spreadsheetId, busNumber, { covered_by: coveredBy }, userEmail, session);
 }
 
 /**
@@ -607,67 +668,60 @@ export async function markBusCovered(
 export async function markBusUncovered(
 	spreadsheetId: string,
 	busNumber: string,
-	userEmail: string
+	userEmail: string,
+	session: Session
 ): Promise<void> {
-	await updateBusStatus(spreadsheetId, busNumber, { is_uncovered: true }, userEmail);
+	await updateBusStatus(spreadsheetId, busNumber, { is_uncovered: true }, userEmail, session);
 }
 
 /**
  * Batch fetch config and status data in a single API call.
  * This is the most efficient way to load initial data.
- * Returns null for status if the daily sheet doesn't exist yet.
+ * Returns null for status if the session sheet doesn't exist yet.
  */
 export async function getBusDataBatched(
 	spreadsheetId: string,
+	session: Session,
 	date: string = getTodayDate()
 ): Promise<{ config: BusConfig[]; status: BusStatus[] | null; sheetExists: boolean }> {
+	const sheetName = getSessionSheetName(date, session);
+
 	// First check if we need to know about sheet existence
 	const info = await getSpreadsheetInfo(spreadsheetId);
-	const sheetExists = info.sheets.includes(date);
+	const sheetExists = info.sheets.includes(sheetName);
 
 	if (sheetExists) {
 		// Validate and repair the sheet structure before reading
 		// (this also caches that the sheet exists and is valid)
-		await ensureDailySheet(spreadsheetId, date);
+		await ensureDailySheet(spreadsheetId, session, date);
 
 		// Batch fetch both config and status in one call
 		const [configValues, statusValues] = await batchGetValues(spreadsheetId, [
-			'Config!A2:C100',
-			`${date}!A2:G100`
+			CONFIG_DATA_RANGE,
+			sheetRange(sheetName, 'A2:G100')
 		]);
 
-		const config = configValues.map((row) => ({
-			bus_number: row[0] || '',
-			expected_arrival_time: row[1] || '',
-			early_dismissal_overrides: row[2] ? JSON.parse(row[2]) : {}
-		}));
-
+		const config = configValues.map(parseConfigRow);
 		const status = statusValues.map(parseStatusRow);
 
 		// Update row index cache
-		updateRowIndexCache(spreadsheetId, date, status);
+		updateRowIndexCache(spreadsheetId, sheetName, status);
 
 		return { config, status, sheetExists: true };
 	} else {
 		// Sheet doesn't exist - just get config
-		const configValues = await getSheetValues(spreadsheetId, 'Config!A2:C100');
-
-		const config = configValues.map((row) => ({
-			bus_number: row[0] || '',
-			expected_arrival_time: row[1] || '',
-			early_dismissal_overrides: row[2] ? JSON.parse(row[2]) : {}
-		}));
-
-		return { config, status: null, sheetExists: false };
+		const configValues = await getSheetValues(spreadsheetId, CONFIG_DATA_RANGE);
+		return { config: configValues.map(parseConfigRow), status: null, sheetExists: false };
 	}
 }
 
 /**
- * Get all daily sheets (dates) available.
+ * Get all session sheets (e.g. "2026-07-08 AM"), sorted chronologically
+ * (AM sorts before PM within a date).
  */
-export async function getAvailableDates(spreadsheetId: string): Promise<string[]> {
+export async function getAvailableSessionSheets(spreadsheetId: string): Promise<string[]> {
 	const info = await getSpreadsheetInfo(spreadsheetId);
-	return info.sheets.filter((name) => /^\d{4}-\d{2}-\d{2}$/.test(name)).sort();
+	return info.sheets.filter((name) => parseSessionSheetName(name) !== null).sort();
 }
 
 /**
@@ -700,16 +754,16 @@ function parseStatisticsRows(rows: string[][]): StatisticsReport | null {
 		generatedAt: '',
 		startDate: '',
 		endDate: '',
-		totalDays: 0,
-		totalBusArrivals: 0,
-		overallOnTimePct: 0,
-		perBusStats: [],
+		totalSessions: 0,
+		totalScheduledRuns: 0,
+		totalUncovered: 0,
+		uncoveredRatePct: 0,
+		exceedsDistrictAverage: false,
 		uncoveredIncidents: [],
-		coveragePairs: [],
-		dailyCounts: []
+		sessionRates: []
 	};
 
-	type TableContext = 'none' | 'summary' | 'per_bus' | 'daily' | 'coverage' | 'uncovered';
+	type TableContext = 'none' | 'summary' | 'session_rates' | 'uncovered';
 	let currentTable: TableContext = 'none';
 	let skipNextRow = false; // Skip header rows after markers
 
@@ -722,18 +776,8 @@ function parseStatisticsRows(rows: string[][]): StatisticsReport | null {
 			skipNextRow = true;
 			continue;
 		}
-		if (firstCell === '--- PER-BUS STATISTICS ---') {
-			currentTable = 'per_bus';
-			skipNextRow = true;
-			continue;
-		}
-		if (firstCell === '--- DAILY COUNTS ---') {
-			currentTable = 'daily';
-			skipNextRow = true;
-			continue;
-		}
-		if (firstCell === '--- COVERAGE PAIRS ---') {
-			currentTable = 'coverage';
+		if (firstCell === '--- SESSION RATES ---') {
+			currentTable = 'session_rates';
 			skipNextRow = true;
 			continue;
 		}
@@ -759,49 +803,37 @@ function parseStatisticsRows(rows: string[][]): StatisticsReport | null {
 				report.generatedAt = row[0] || '';
 				report.startDate = row[1] || '';
 				report.endDate = row[2] || '';
-				report.totalDays = parseInt(row[3], 10) || 0;
-				report.totalBusArrivals = parseInt(row[4], 10) || 0;
-				report.overallOnTimePct = parseFloat(row[5]) || 0;
+				report.totalSessions = parseInt(row[3], 10) || 0;
+				report.totalScheduledRuns = parseInt(row[4], 10) || 0;
+				report.totalUncovered = parseInt(row[5], 10) || 0;
+				report.uncoveredRatePct = parseFloat(row[6]) || 0;
+				report.exceedsDistrictAverage = row[7] === 'TRUE';
 				break;
 
-			case 'per_bus':
-				report.perBusStats.push({
-					busNumber: row[0] || '',
-					avgDelayMinutes: parseFloat(row[1]) || 0,
-					maxDelayMinutes: parseFloat(row[2]) || 0,
-					onTimePct: parseFloat(row[3]) || 0
-				});
-				break;
-
-			case 'daily':
-				report.dailyCounts.push({
+			case 'session_rates':
+				report.sessionRates.push({
 					date: row[0] || '',
-					total: parseInt(row[1], 10) || 0,
-					onTime: parseInt(row[2], 10) || 0,
-					late: parseInt(row[3], 10) || 0,
-					uncovered: parseInt(row[4], 10) || 0
-				});
-				break;
-
-			case 'coverage':
-				report.coveragePairs.push({
-					coveringBus: row[0] || '',
-					coveredBus: row[1] || '',
-					count: parseInt(row[2], 10) || 0
+					session: row[1] === 'AM' ? 'AM' : 'PM',
+					scheduled: parseInt(row[2], 10) || 0,
+					uncovered: parseInt(row[3], 10) || 0,
+					ratePct: parseFloat(row[4]) || 0
 				});
 				break;
 
 			case 'uncovered':
 				report.uncoveredIncidents.push({
 					date: row[0] || '',
-					busNumber: row[1] || ''
+					session: row[1] === 'AM' ? 'AM' : 'PM',
+					busNumber: row[2] || ''
 				});
 				break;
 		}
 	}
 
-	// Sort daily counts by date
-	report.dailyCounts.sort((a, b) => a.date.localeCompare(b.date));
+	// Sort session rates chronologically (AM before PM within a date)
+	report.sessionRates.sort((a, b) =>
+		`${a.date} ${a.session}`.localeCompare(`${b.date} ${b.session}`)
+	);
 
 	return report.generatedAt ? report : null;
 }
@@ -815,7 +847,7 @@ export async function getStatisticsReport(spreadsheetId: string): Promise<Statis
 	if (!exists) return null;
 
 	// Read from row 1 - the horizontal tables include their own section markers and headers
-	const values = await getSheetValues(spreadsheetId, 'Statistics!A1:F1000');
+	const values = await getSheetValues(spreadsheetId, 'Statistics!A1:H1000');
 	return parseStatisticsRows(values);
 }
 
@@ -828,55 +860,41 @@ function statisticsReportToRows(report: StatisticsReport): string[][] {
 
 	// Summary Table
 	rows.push(['--- SUMMARY ---']);
-	rows.push(['Generated At', 'Start Date', 'End Date', 'Total Days', 'Total Arrivals', 'On-Time %']);
+	rows.push([
+		'Generated At',
+		'Start Date',
+		'End Date',
+		'Total Sessions',
+		'Scheduled Runs',
+		'Uncovered Runs',
+		'Uncovered Rate %',
+		'Exceeds District Avg'
+	]);
 	rows.push([
 		report.generatedAt,
 		report.startDate,
 		report.endDate,
-		String(report.totalDays),
-		String(report.totalBusArrivals),
-		String(report.overallOnTimePct)
+		String(report.totalSessions),
+		String(report.totalScheduledRuns),
+		String(report.totalUncovered),
+		String(report.uncoveredRatePct),
+		report.exceedsDistrictAverage ? 'TRUE' : 'FALSE'
 	]);
 
 	// Blank row separator
 	rows.push([]);
 
-	// Per-Bus Stats Table
-	rows.push(['--- PER-BUS STATISTICS ---']);
-	rows.push(['Bus Number', 'Avg Delay (min)', 'Max Delay (min)', 'On-Time %']);
-	for (const bus of report.perBusStats) {
+	// Session Rates Table
+	rows.push(['--- SESSION RATES ---']);
+	rows.push(['Date', 'Session', 'Scheduled', 'Uncovered', 'Rate %']);
+	for (const rate of report.sessionRates) {
 		rows.push([
-			bus.busNumber,
-			String(bus.avgDelayMinutes),
-			String(bus.maxDelayMinutes),
-			String(bus.onTimePct)
+			rate.date,
+			rate.session,
+			String(rate.scheduled),
+			String(rate.uncovered),
+			String(rate.ratePct)
 		]);
-	}
-
-	// Blank row separator
-	rows.push([]);
-
-	// Daily Counts Table
-	rows.push(['--- DAILY COUNTS ---']);
-	rows.push(['Date', 'Total', 'On-Time', 'Late', 'Uncovered']);
-	for (const day of report.dailyCounts) {
-		rows.push([
-			day.date,
-			String(day.total),
-			String(day.onTime),
-			String(day.late),
-			String(day.uncovered)
-		]);
-	}
-
-	// Blank row separator
-	rows.push([]);
-
-	// Coverage Pairs Table
-	rows.push(['--- COVERAGE PAIRS ---']);
-	rows.push(['Covering Bus', 'Covered Bus', 'Count']);
-	for (const pair of report.coveragePairs) {
-		rows.push([pair.coveringBus, pair.coveredBus, String(pair.count)]);
 	}
 
 	// Blank row separator
@@ -884,9 +902,9 @@ function statisticsReportToRows(report: StatisticsReport): string[][] {
 
 	// Uncovered Incidents Table
 	rows.push(['--- UNCOVERED INCIDENTS ---']);
-	rows.push(['Date', 'Bus Number']);
+	rows.push(['Date', 'Session', 'Bus Number']);
 	for (const incident of report.uncoveredIncidents) {
-		rows.push([incident.date, incident.busNumber]);
+		rows.push([incident.date, incident.session, incident.busNumber]);
 	}
 
 	return rows;
@@ -904,8 +922,8 @@ export async function saveStatisticsReport(
 
 	const rows = statisticsReportToRows(report);
 
-	// Determine the max column width needed (Summary table has 6 columns: A through F)
-	const maxCols = 6;
+	// Determine the max column width needed (Summary table has 8 columns: A through H)
+	const maxCols = 8;
 
 	// Pad all rows to max width to ensure clean overwrite
 	const paddedRows = rows.map((row) => {
@@ -916,43 +934,43 @@ export async function saveStatisticsReport(
 		return padded;
 	});
 
-	// Write to sheet - use A1:F{rowCount} to cover full width
-	await updateSheetValues(spreadsheetId, `Statistics!A1:F${paddedRows.length}`, paddedRows);
+	// Write to sheet - use A1:H{rowCount} to cover full width
+	await updateSheetValues(spreadsheetId, `Statistics!A1:H${paddedRows.length}`, paddedRows);
 }
 
 /**
  * Fetch ALL historical data for statistics calculation.
- * Uses batch API for efficiency.
+ * Uses batch API for efficiency. Data is keyed by session sheet name
+ * (e.g. "2026-07-08 AM").
  */
 export async function getAllHistoricalData(spreadsheetId: string): Promise<{
 	config: BusConfig[];
-	dailyData: Record<string, BusStatus[]>;
+	sessionData: Record<string, BusStatus[]>;
 }> {
-	const dates = await getAvailableDates(spreadsheetId);
+	const sheetNames = await getAvailableSessionSheets(spreadsheetId);
 
-	if (dates.length === 0) {
+	if (sheetNames.length === 0) {
 		// Just get config
 		const config = await getBusConfig(spreadsheetId);
-		return { config, dailyData: {} };
+		return { config, sessionData: {} };
 	}
 
-	// Build ranges for batch fetch: config + all daily sheets
-	const ranges = ['Config!A2:C100', ...dates.map((date) => `${date}!A2:G100`)];
+	// Build ranges for batch fetch: config + all session sheets
+	const ranges = [
+		CONFIG_DATA_RANGE,
+		...sheetNames.map((name) => sheetRange(name, 'A2:G100'))
+	];
 
 	const results = await batchGetValues(spreadsheetId, ranges);
 
 	// First result is config
-	const config = results[0].map((row) => ({
-		bus_number: row[0] || '',
-		expected_arrival_time: row[1] || '',
-		early_dismissal_overrides: row[2] ? JSON.parse(row[2]) : {}
-	}));
+	const config = results[0].map(parseConfigRow);
 
-	// Remaining results are daily data
-	const dailyData: Record<string, BusStatus[]> = {};
-	for (let i = 0; i < dates.length; i++) {
-		dailyData[dates[i]] = results[i + 1].map(parseStatusRow);
+	// Remaining results are session data
+	const sessionData: Record<string, BusStatus[]> = {};
+	for (let i = 0; i < sheetNames.length; i++) {
+		sessionData[sheetNames[i]] = results[i + 1].map(parseStatusRow);
 	}
 
-	return { config, dailyData };
+	return { config, sessionData };
 }

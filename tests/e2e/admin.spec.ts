@@ -1,6 +1,10 @@
 import { test, expect } from '@playwright/test';
 import { signInAsAdmin } from '../helpers/test-setup';
-import { populatedTracker, trackerWithHistory, trackerWithExtendedHistory } from '../fixtures/populated-tracker';
+import {
+	populatedTracker,
+	trackerWithExtendedHistory,
+	lowUncoveredTracker
+} from '../fixtures/populated-tracker';
 import { trackerWithEmptyDailySheet } from '../fixtures/empty-daily-sheet';
 
 test.describe('Admin Management', () => {
@@ -22,10 +26,10 @@ test.describe('Admin Management', () => {
 		await expect(page.getByTestId('bus-17')).toContainText(/uncovered/i);
 	});
 
-	test('admin can mark bus uncovered when daily sheet has no bus rows', async ({ page }) => {
+	test('admin can mark bus uncovered when session sheet has no bus rows', async ({ page }) => {
 		// This tests the fix for "Bus not found" errors when:
 		// - Config has buses configured
-		// - Daily sheet exists but was never populated with bus rows
+		// - Session sheet exists but was never populated with bus rows
 		await signInAsAdmin(page, {
 			email: 'admin@lincoln.edu',
 			name: 'School Admin',
@@ -69,14 +73,55 @@ test.describe('Admin Management', () => {
 		await page.locator('nav').getByRole('button', { name: /statistics/i }).click();
 		await page.getByRole('button', { name: /recalculate/i }).click();
 
-		// Should show loading state
-		await expect(page.getByText(/calculating/i)).toBeVisible();
-
 		// Should show report after generation
 		await expect(page.getByText(/last generated:/i)).toBeVisible({ timeout: 10000 });
 	});
 
-	test('admin can view statistics for uncovered buses', async ({ page }) => {
+	test('admin sees the uncovered rate flagged when it exceeds the district average', async ({
+		page
+	}) => {
+		await signInAsAdmin(page, {
+			email: 'admin@lincoln.edu',
+			name: 'School Admin',
+			sheetData: trackerWithExtendedHistory,
+			view: 'admin'
+		});
+
+		await page.locator('nav').getByRole('button', { name: /statistics/i }).click();
+		await page.getByRole('button', { name: /recalculate/i }).click();
+		await expect(page.getByText(/last generated:/i)).toBeVisible({ timeout: 10000 });
+
+		// Fixture: 60 historical runs + 5 in today's auto-created sheet,
+		// 3 uncovered => 4.6%
+		await expect(page.getByTestId('uncovered-rate')).toHaveText('4.6%');
+		await expect(page.getByTestId('district-verdict')).toContainText(
+			/above the district average of 1\.6%/i
+		);
+	});
+
+	test('admin sees the uncovered rate cleared when it is below the district average', async ({
+		page
+	}) => {
+		await signInAsAdmin(page, {
+			email: 'admin@lincoln.edu',
+			name: 'School Admin',
+			sheetData: lowUncoveredTracker,
+			view: 'admin'
+		});
+
+		await page.locator('nav').getByRole('button', { name: /statistics/i }).click();
+		await page.getByRole('button', { name: /recalculate/i }).click();
+		await expect(page.getByText(/last generated:/i)).toBeVisible({ timeout: 10000 });
+
+		// Fixture: 120 historical runs + 5 in today's auto-created sheet,
+		// 1 uncovered => 0.8%
+		await expect(page.getByTestId('uncovered-rate')).toHaveText('0.8%');
+		await expect(page.getByTestId('district-verdict')).toContainText(
+			/at or below the district average of 1\.6%/i
+		);
+	});
+
+	test('admin can view uncovered incidents with their session', async ({ page }) => {
 		await signInAsAdmin(page, {
 			email: 'admin@lincoln.edu',
 			name: 'School Admin',
@@ -94,36 +139,16 @@ test.describe('Admin Management', () => {
 		// Should show uncovered incidents section
 		await expect(page.getByRole('heading', { name: /uncovered incidents/i })).toBeVisible();
 
-		// From fixture: Bus 3 was uncovered on 2024-01-10, Bus 5 on 2024-01-16
+		// From fixture: Bus 3 (2024-01-10 PM), Bus 5 (2024-01-16 PM), Bus 2 (2024-01-17 AM)
 		const uncoveredSection = page.getByRole('heading', { name: /uncovered incidents/i }).locator('..');
 		await expect(uncoveredSection.getByText('Bus 3')).toBeVisible();
+		await expect(uncoveredSection.getByText('2024-01-10 PM')).toBeVisible();
 		await expect(uncoveredSection.getByText('Bus 5')).toBeVisible();
+		await expect(uncoveredSection.getByText('Bus 2')).toBeVisible();
+		await expect(uncoveredSection.getByText('2024-01-17 AM')).toBeVisible();
 	});
 
-	test('admin can view average and max arrival delays', async ({ page }) => {
-		await signInAsAdmin(page, {
-			email: 'admin@lincoln.edu',
-			name: 'School Admin',
-			sheetData: trackerWithExtendedHistory,
-			view: 'admin'
-		});
-
-		await page.locator('nav').getByRole('button', { name: /statistics/i }).click();
-
-		// Generate report
-		await page.getByRole('button', { name: /recalculate/i }).click();
-		await expect(page.getByText(/last generated:/i)).toBeVisible({ timeout: 10000 });
-
-		// Should show per-bus performance table with delay info
-		await expect(page.getByText(/per-bus.*performance/i)).toBeVisible();
-		await expect(page.getByText(/avg.*delay/i)).toBeVisible();
-		await expect(page.getByText(/max.*delay/i)).toBeVisible();
-
-		// Should show some delay numbers
-		await expect(page.locator('text=/\\d+\\s*min/i').first()).toBeVisible();
-	});
-
-	test('admin sees summary cards with statistics', async ({ page }) => {
+	test('admin sees the uncovered-rate trend chart', async ({ page }) => {
 		await signInAsAdmin(page, {
 			email: 'admin@lincoln.edu',
 			name: 'School Admin',
@@ -135,48 +160,7 @@ test.describe('Admin Management', () => {
 		await page.getByRole('button', { name: /recalculate/i }).click();
 		await expect(page.getByText(/last generated:/i)).toBeVisible({ timeout: 10000 });
 
-		// Should show summary cards
-		await expect(page.getByText(/total.*days/i)).toBeVisible();
-		await expect(page.getByText(/on-time.*rate/i)).toBeVisible();
-
-		// From fixture: 10 historical days + today's sheet auto-created
-		const totalDaysCard = page.getByText('Total Days').locator('..');
-		await expect(totalDaysCard).toContainText('11');
-	});
-
-	test('admin sees charts after generating statistics', async ({ page }) => {
-		await signInAsAdmin(page, {
-			email: 'admin@lincoln.edu',
-			name: 'School Admin',
-			sheetData: trackerWithExtendedHistory,
-			view: 'admin'
-		});
-
-		await page.locator('nav').getByRole('button', { name: /statistics/i }).click();
-		await page.getByRole('button', { name: /recalculate/i }).click();
-		await expect(page.getByText(/last generated:/i)).toBeVisible({ timeout: 10000 });
-
-		// Should have rendered at least 2 charts (daily trend + on-time pie)
-		await expect(page.locator('canvas')).toHaveCount(3);
-	});
-
-	test('admin can view coverage summary', async ({ page }) => {
-		await signInAsAdmin(page, {
-			email: 'admin@lincoln.edu',
-			name: 'School Admin',
-			sheetData: trackerWithExtendedHistory,
-			view: 'admin'
-		});
-
-		await page.locator('nav').getByRole('button', { name: /statistics/i }).click();
-		await page.getByRole('button', { name: /recalculate/i }).click();
-		await expect(page.getByText(/last generated:/i)).toBeVisible({ timeout: 10000 });
-
-		// Should show coverage summary section
-		await expect(page.getByText(/coverage.*summary/i)).toBeVisible();
-
-		// From fixture: Bus 1 covers Bus 2 and Bus 3
-		await expect(page.getByText(/Bus 1 covered Bus 2/i)).toBeVisible();
-		await expect(page.getByText(/Bus 1 covered Bus 3/i)).toBeVisible();
+		// The report has a single chart: uncovered rate over time vs district average
+		await expect(page.locator('canvas')).toHaveCount(1);
 	});
 });

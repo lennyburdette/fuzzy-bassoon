@@ -10,6 +10,7 @@
     stopPolling,
     updateBusLocally,
     getBusesWithActions,
+    getSelectedSession,
   } from "$lib/state/buses.svelte";
   import {
     saveBusConfig,
@@ -23,9 +24,8 @@
   import { getCurrentTimeEastern } from "$lib/utils/time";
   import {
     getCurrentUser,
-    getAccessToken,
-    requestAccessToken,
-    waitForAccessToken,
+    ensureFreshToken,
+    requestInteractiveToken,
   } from "$lib/state/auth.svelte";
   import BusList from "./BusList.svelte";
   import CoverModal from "./CoverModal.svelte";
@@ -49,14 +49,15 @@
   // Config editing state
   let editingConfig = $state<BusConfig[]>([]);
   let newBusNumber = $state("");
-  let newArrivalTime = $state("");
+  let newAmArrivalTime = $state("");
+  let newPmArrivalTime = $state("");
   let needsAuthorization = $state(false);
   let isAuthorizing = $state(false);
   let showEarlyDismissalModal = $state(false);
 
   onMount(async () => {
-    // Check if we have an access token
-    if (!getAccessToken()) {
+    // Try to obtain a token silently (no popup) before asking the user
+    if (!(await ensureFreshToken())) {
       needsAuthorization = true;
       return;
     }
@@ -67,8 +68,7 @@
 
   async function handleAuthorize() {
     isAuthorizing = true;
-    requestAccessToken();
-    if (await waitForAccessToken()) {
+    if (await requestInteractiveToken()) {
       needsAuthorization = false;
       await loadBuses(sheetId);
       editingConfig = [...busState.config];
@@ -96,7 +96,7 @@
       actionError = null;
       const time = getCurrentTimeEastern();
       updateBusLocally(busNumber, { arrival_time: time });
-      await markBusArrived(sheetId, busNumber, user.email);
+      await markBusArrived(sheetId, busNumber, user.email, getSelectedSession());
       successMessage = `Bus ${busNumber} marked as arrived`;
       setTimeout(() => (successMessage = null), 3000);
     } catch (e) {
@@ -117,7 +117,7 @@
       actionError = null;
       const time = getCurrentTimeEastern();
       updateBusLocally(busNumber, { departure_time: time });
-      await markBusDeparted(sheetId, busNumber, user.email);
+      await markBusDeparted(sheetId, busNumber, user.email, getSelectedSession());
       successMessage = `Bus ${busNumber} marked as departed`;
       setTimeout(() => (successMessage = null), 3000);
     } catch (e) {
@@ -146,7 +146,7 @@
     try {
       actionError = null;
       updateBusLocally(busToUpdate, { covered_by: coveringBusNumber, arrival_time: time });
-      await markBusCovered(sheetId, busToUpdate, coveringBusNumber, user.email);
+      await markBusCovered(sheetId, busToUpdate, coveringBusNumber, user.email, getSelectedSession());
       successMessage = `Bus ${busToUpdate} marked as covered by ${coveringBusNumber}`;
       setTimeout(() => (successMessage = null), 3000);
     } catch (e) {
@@ -166,7 +166,7 @@
     try {
       actionError = null;
       updateBusLocally(busNumber, { is_uncovered: true });
-      await markBusUncovered(sheetId, busNumber, user.email);
+      await markBusUncovered(sheetId, busNumber, user.email, getSelectedSession());
       successMessage = `Bus ${busNumber} marked as uncovered`;
       setTimeout(() => (successMessage = null), 3000);
     } catch (e) {
@@ -202,7 +202,7 @@
     try {
       actionError = null;
       updateBusLocally(busToUpdate, updates);
-      await updateBusStatus(sheetId, busToUpdate, updates, user.email);
+      await updateBusStatus(sheetId, busToUpdate, updates, user.email, getSelectedSession());
       successMessage = "Changes saved";
       setTimeout(() => (successMessage = null), 3000);
     } catch (e) {
@@ -218,27 +218,31 @@
   function addBus() {
     if (!newBusNumber.trim()) return;
 
-    // Use the entered time, or fall back to the last bus's time
-    const timeToUse = newArrivalTime || defaultArrivalTime;
-
     editingConfig = [
       ...editingConfig,
       {
         bus_number: newBusNumber.trim(),
-        expected_arrival_time: timeToUse,
+        // Use the entered times, or fall back to the last bus's times
+        am_expected_arrival_time: newAmArrivalTime || defaultAmArrivalTime,
+        pm_expected_arrival_time: newPmArrivalTime || defaultPmArrivalTime,
       },
     ];
     newBusNumber = "";
-    newArrivalTime = "";
+    newAmArrivalTime = "";
+    newPmArrivalTime = "";
   }
 
   function removeBus(index: number) {
     editingConfig = editingConfig.filter((_, i) => i !== index);
   }
 
-  function updateBusTime(index: number, time: string) {
+  function updateBusTime(
+    index: number,
+    field: "am_expected_arrival_time" | "pm_expected_arrival_time",
+    time: string
+  ) {
     editingConfig = editingConfig.map((bus, i) =>
-      i === index ? { ...bus, expected_arrival_time: time } : bus
+      i === index ? { ...bus, [field]: time } : bus
     );
   }
 
@@ -326,10 +330,15 @@
     await saveConfig();
   }
 
-  // Default new arrival time to the last bus's time
-  let defaultArrivalTime = $derived(
+  // Default new arrival times to the last bus's times
+  let defaultAmArrivalTime = $derived(
     editingConfig.length > 0
-      ? editingConfig[editingConfig.length - 1].expected_arrival_time
+      ? editingConfig[editingConfig.length - 1].am_expected_arrival_time
+      : ""
+  );
+  let defaultPmArrivalTime = $derived(
+    editingConfig.length > 0
+      ? editingConfig[editingConfig.length - 1].pm_expected_arrival_time
       : ""
   );
 </script>
@@ -487,8 +496,8 @@
         </div>
 
         <!-- Bus List -->
-        <div class="rounded-lg border border-bus-200">
-          <table class="w-full">
+        <div class="overflow-x-auto rounded-lg border border-bus-200">
+          <table class="w-full min-w-[34rem]">
             <thead class="bg-bus-50">
               <tr>
                 <th
@@ -498,7 +507,12 @@
                 <th
                   class="px-4 py-3 text-left text-sm font-medium text-stone-700"
                 >
-                  Expected Arrival Time
+                  AM Arrival Time
+                </th>
+                <th
+                  class="px-4 py-3 text-left text-sm font-medium text-stone-700"
+                >
+                  PM Arrival Time
                 </th>
                 <th
                   class="px-4 py-3 text-right text-sm font-medium text-stone-700"
@@ -513,10 +527,26 @@
                   <td class="px-4 py-3">
                     <input
                       type="time"
-                      value={bus.expected_arrival_time}
+                      aria-label="AM arrival time for bus {bus.bus_number}"
+                      value={bus.am_expected_arrival_time}
                       onchange={(e) =>
                         updateBusTime(
                           index,
+                          "am_expected_arrival_time",
+                          (e.target as HTMLInputElement).value
+                        )}
+                      class="rounded border border-bus-300 px-2 py-1"
+                    />
+                  </td>
+                  <td class="px-4 py-3">
+                    <input
+                      type="time"
+                      aria-label="PM arrival time for bus {bus.bus_number}"
+                      value={bus.pm_expected_arrival_time}
+                      onchange={(e) =>
+                        updateBusTime(
+                          index,
+                          "pm_expected_arrival_time",
                           (e.target as HTMLInputElement).value
                         )}
                       class="rounded border border-bus-300 px-2 py-1"
@@ -544,8 +574,18 @@
                 <td class="px-4 py-3">
                   <input
                     type="time"
-                    value={newArrivalTime || defaultArrivalTime}
-                    onchange={(e) => (newArrivalTime = (e.target as HTMLInputElement).value)}
+                    aria-label="AM arrival time for new bus"
+                    value={newAmArrivalTime || defaultAmArrivalTime}
+                    onchange={(e) => (newAmArrivalTime = (e.target as HTMLInputElement).value)}
+                    class="rounded border border-bus-300 px-2 py-1"
+                  />
+                </td>
+                <td class="px-4 py-3">
+                  <input
+                    type="time"
+                    aria-label="PM arrival time for new bus"
+                    value={newPmArrivalTime || defaultPmArrivalTime}
+                    onchange={(e) => (newPmArrivalTime = (e.target as HTMLInputElement).value)}
                     class="rounded border border-bus-300 px-2 py-1"
                   />
                 </td>

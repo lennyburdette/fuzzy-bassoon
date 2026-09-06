@@ -6,7 +6,7 @@ import type { MockSheetData } from '../mocks/sheets-api';
 export const emptyTracker: MockSheetData = {
 	spreadsheetId: 'empty_tracker_123',
 	config: [],
-	dailyData: {}
+	sessionData: {}
 };
 
 /**
@@ -16,5 +16,5 @@ export const emptyTracker: MockSheetData = {
 export const newSchoolSetup: MockSheetData = {
 	spreadsheetId: 'new_school_456',
 	config: [],
-	dailyData: {}
+	sessionData: {}
 };

@@ -9,7 +9,8 @@
 		startPolling,
 		stopPolling,
 		updateBusLocally,
-		getBusesWithActions
+		getBusesWithActions,
+		getSelectedSession
 	} from '$lib/state/buses.svelte';
 	import {
 		markBusArrived,
@@ -18,7 +19,7 @@
 		updateBusStatus
 	} from '$lib/services/sheets-api';
 	import { getCurrentTimeEastern } from '$lib/utils/time';
-	import { getCurrentUser, getAccessToken, requestAccessToken, waitForAccessToken } from '$lib/state/auth.svelte';
+	import { getCurrentUser, ensureFreshToken, requestInteractiveToken } from '$lib/state/auth.svelte';
 	import BusList from './BusList.svelte';
 	import CoverModal from './CoverModal.svelte';
 	import EditBusModal from './EditBusModal.svelte';
@@ -37,7 +38,8 @@
 	let isAuthorizing = $state(false);
 
 	onMount(async () => {
-		if (!getAccessToken()) {
+		// Try to obtain a token silently (no popup) before asking the user
+		if (!(await ensureFreshToken())) {
 			needsAuthorization = true;
 			return;
 		}
@@ -51,8 +53,7 @@
 
 	async function handleAuthorize() {
 		isAuthorizing = true;
-		requestAccessToken();
-		if (await waitForAccessToken()) {
+		if (await requestInteractiveToken()) {
 			needsAuthorization = false;
 			await loadBuses(sheetId);
 			startPolling(sheetId, 10000);
@@ -77,7 +78,7 @@
 			actionError = null;
 			const time = getCurrentTimeEastern();
 			withViewTransition(() => updateBusLocally(busNumber, { arrival_time: time }));
-			await markBusArrived(sheetId, busNumber, user.email);
+			await markBusArrived(sheetId, busNumber, user.email, getSelectedSession());
 		} catch (e) {
 			actionError = e instanceof Error ? e.message : 'Failed to mark arrived';
 			try {
@@ -96,7 +97,7 @@
 			actionError = null;
 			const time = getCurrentTimeEastern();
 			withViewTransition(() => updateBusLocally(busNumber, { departure_time: time }));
-			await markBusDeparted(sheetId, busNumber, user.email);
+			await markBusDeparted(sheetId, busNumber, user.email, getSelectedSession());
 		} catch (e) {
 			actionError = e instanceof Error ? e.message : 'Failed to mark departed';
 			try {
@@ -125,7 +126,7 @@
 			withViewTransition(() =>
 				updateBusLocally(busToUpdate, { covered_by: coveringBusNumber })
 			);
-			await markBusCovered(sheetId, busToUpdate, coveringBusNumber, user.email);
+			await markBusCovered(sheetId, busToUpdate, coveringBusNumber, user.email, getSelectedSession());
 		} catch (e) {
 			actionError = e instanceof Error ? e.message : 'Failed to mark covered';
 			try {
@@ -159,7 +160,7 @@
 		try {
 			actionError = null;
 			withViewTransition(() => updateBusLocally(busToUpdate, updates));
-			await updateBusStatus(sheetId, busToUpdate, updates, user.email);
+			await updateBusStatus(sheetId, busToUpdate, updates, user.email, getSelectedSession());
 		} catch (e) {
 			actionError = e instanceof Error ? e.message : 'Failed to save changes';
 			try {
