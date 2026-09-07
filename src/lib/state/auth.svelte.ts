@@ -72,6 +72,8 @@ let refreshTimer: ReturnType<typeof setTimeout> | null = null;
 // Resolver for the in-flight acquireToken() promise, if any
 let pendingTokenResolve: ((ok: boolean) => void) | null = null;
 let pendingTokenTimer: ReturnType<typeof setTimeout> | null = null;
+// Whether the in-flight token request was interactive or silent, for error logging
+let pendingTokenWasInteractive = false;
 
 /**
  * Save user to localStorage
@@ -253,6 +255,10 @@ function handleTokenResponse(response: google.accounts.oauth2.TokenResponse): vo
 		if (response.error) {
 			error = response.error;
 		}
+		console.warn(
+			`[auth] ${pendingTokenWasInteractive ? 'interactive' : 'silent'} token request failed:`,
+			response.error || '(no error field)'
+		);
 		settlePendingTokenRequest(false);
 	}
 }
@@ -262,6 +268,10 @@ function handleTokenResponse(response: google.accounts.oauth2.TokenResponse): vo
  */
 function handleTokenError(err: { type?: string; message?: string }): void {
 	error = err.message || err.type || 'Authorization failed';
+	console.warn(
+		`[auth] ${pendingTokenWasInteractive ? 'interactive' : 'silent'} token request error:`,
+		err
+	);
 	settlePendingTokenRequest(false);
 }
 
@@ -284,11 +294,14 @@ function acquireToken(interactive: boolean): Promise<boolean> {
 		// A newer request supersedes any in-flight one
 		settlePendingTokenRequest(false);
 		pendingTokenResolve = resolve;
+		pendingTokenWasInteractive = interactive;
 		// Silent attempts settle fast; interactive ones wait on the user
-		pendingTokenTimer = setTimeout(
-			() => settlePendingTokenRequest(false),
-			interactive ? 60000 : 8000
-		);
+		pendingTokenTimer = setTimeout(() => {
+			console.warn(
+				`[auth] ${interactive ? 'interactive' : 'silent'} token request timed out with no response`
+			);
+			settlePendingTokenRequest(false);
+		}, interactive ? 60000 : 8000);
 		tokenClient!.requestAccessToken(interactive ? {} : { prompt: '' });
 	});
 }

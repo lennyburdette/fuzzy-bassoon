@@ -90,6 +90,34 @@ test.describe('Admin Setup', () => {
 		await expect(page.getByText(/saved/i)).toBeVisible();
 	});
 
+	test('configure buses normalizes irregularly formatted times from the sheet', async ({
+		page
+	}) => {
+		// Times a person might type directly into the spreadsheet: missing
+		// leading zero, and 12-hour with AM/PM.
+		const sheetData = {
+			...newSchoolSetup,
+			config: [
+				{ bus_number: 'B012', am_expected_arrival_time: '8:20', pm_expected_arrival_time: '' },
+				{ bus_number: 'B015', am_expected_arrival_time: '', pm_expected_arrival_time: '3:10 PM' }
+			]
+		};
+		await signInAsAdmin(page, {
+			email: 'admin@lincoln.edu',
+			name: 'School Admin',
+			sheetData,
+			view: 'admin'
+		});
+
+		await page.locator('nav').getByRole('button', { name: /configure buses/i }).click();
+
+		const busB012 = page.getByRole('row', { name: /B012/i });
+		await expect(busB012.getByLabel(/am arrival time for bus B012/i)).toHaveValue('08:20');
+
+		const busB015 = page.getByRole('row', { name: /B015/i });
+		await expect(busB015.getByLabel(/pm arrival time for bus B015/i)).toHaveValue('15:10');
+	});
+
 	test('admin can add early dismissal for a specific date', async ({ page }) => {
 		const sheetData = {
 			...newSchoolSetup,
