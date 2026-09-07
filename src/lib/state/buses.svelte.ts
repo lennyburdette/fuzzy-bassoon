@@ -93,6 +93,9 @@ const noActions: BusActions = {
 
 /**
  * Merge config and status data into a single array.
+ * Buses with no expected arrival time for the given session don't run that
+ * session, so they're excluded entirely (e.g. an AM-only bus is left out of
+ * the PM view).
  * Actions are set to defaults; use getBusesWithActions() to get mode-specific actions.
  */
 function mergeBusData(
@@ -101,33 +104,35 @@ function mergeBusData(
 	sess: Session,
 	date: string = getTodayDate()
 ): BusWithStatus[] {
-	return configData.map((c) => {
-		const status = statusData.find((s) => s.bus_number === c.bus_number) || {
-			bus_number: c.bus_number,
-			covered_by: '',
-			is_uncovered: false,
-			arrival_time: '',
-			departure_time: '',
-			last_modified_by: '',
-			last_modified_at: ''
-		};
+	return configData
+		.filter((c) => (sess === 'AM' ? c.am_expected_arrival_time : c.pm_expected_arrival_time))
+		.map((c) => {
+			const status = statusData.find((s) => s.bus_number === c.bus_number) || {
+				bus_number: c.bus_number,
+				covered_by: '',
+				is_uncovered: false,
+				arrival_time: '',
+				departure_time: '',
+				last_modified_by: '',
+				last_modified_at: ''
+			};
 
-		const derivedStatus = deriveBusStatus(status);
-		const expectedTime =
-			sess === 'AM' ? c.am_expected_arrival_time : c.pm_expected_arrival_time;
-		const effectiveTime = getEffectiveArrivalTime(c, date, sess);
-		const hasOverride = effectiveTime !== expectedTime;
+			const derivedStatus = deriveBusStatus(status);
+			const expectedTime =
+				sess === 'AM' ? c.am_expected_arrival_time : c.pm_expected_arrival_time;
+			const effectiveTime = getEffectiveArrivalTime(c, date, sess);
+			const hasOverride = effectiveTime !== expectedTime;
 
-		return {
-			...status,
-			expected_arrival_time: expectedTime,
-			effective_arrival_time: effectiveTime,
-			has_override: hasOverride,
-			derivedStatus,
-			section: deriveBusSection(derivedStatus),
-			actions: noActions
-		};
-	});
+			return {
+				...status,
+				expected_arrival_time: expectedTime,
+				effective_arrival_time: effectiveTime,
+				has_override: hasOverride,
+				derivedStatus,
+				section: deriveBusSection(derivedStatus),
+				actions: noActions
+			};
+		});
 }
 
 /**
