@@ -92,3 +92,37 @@ export function formatTime12Hour(time: string): string {
 	const hours12 = hours % 12 || 12;
 	return `${hours12}:${minutes.toString().padStart(2, '0')} ${period}`;
 }
+
+/**
+ * Normalize a time value read from a spreadsheet cell into strict 24-hour
+ * "HH:MM" (zero-padded), the only format <input type="time"> accepts and
+ * the only format the rest of the app assumes. Sheet cells can hold times
+ * a person typed by hand - missing leading zeros ("8:20"), seconds
+ * ("15:10:00"), or 12-hour with AM/PM ("3:10 PM") - which would otherwise
+ * silently fail to display. Returns '' if the value isn't a recognizable time.
+ */
+export function normalizeTimeString(raw: string): string {
+	const value = raw.trim();
+	if (!value) return '';
+
+	const match = value.match(/^(\d{1,2}):(\d{2})(?::\d{2}(?:\.\d+)?)?\s*(AM|PM)?$/i);
+	if (!match) return '';
+
+	let hours = parseInt(match[1], 10);
+	const minutes = parseInt(match[2], 10);
+	const period = match[3]?.toUpperCase();
+
+	if (minutes > 59) return '';
+
+	if (period === 'AM') {
+		if (hours < 1 || hours > 12) return '';
+		hours = hours === 12 ? 0 : hours;
+	} else if (period === 'PM') {
+		if (hours < 1 || hours > 12) return '';
+		hours = hours === 12 ? 12 : hours + 12;
+	} else if (hours > 23) {
+		return '';
+	}
+
+	return `${String(hours).padStart(2, '0')}:${String(minutes).padStart(2, '0')}`;
+}

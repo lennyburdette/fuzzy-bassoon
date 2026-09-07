@@ -22,6 +22,7 @@ import {
 	getTodayDateEastern,
 	getSessionSheetName,
 	parseSessionSheetName,
+	normalizeTimeString,
 	type Session
 } from '$lib/utils/time';
 
@@ -197,11 +198,15 @@ const CONFIG_DATA_RANGE = 'Config!A2:D100';
  * Parse a raw Config sheet row into a BusConfig object.
  */
 function parseConfigRow(row: string[]): BusConfig {
+	const overrides: Record<string, string> = row[3] ? JSON.parse(row[3]) : {};
+
 	return {
 		bus_number: row[0] || '',
-		am_expected_arrival_time: row[1] || '',
-		pm_expected_arrival_time: row[2] || '',
-		early_dismissal_overrides: row[3] ? JSON.parse(row[3]) : {}
+		am_expected_arrival_time: normalizeTimeString(row[1] || ''),
+		pm_expected_arrival_time: normalizeTimeString(row[2] || ''),
+		early_dismissal_overrides: Object.fromEntries(
+			Object.entries(overrides).map(([date, time]) => [date, normalizeTimeString(time)])
+		)
 	};
 }
 
@@ -525,8 +530,8 @@ function parseStatusRow(row: string[]): BusStatus {
 		bus_number: row[0] || '',
 		covered_by: row[1] || '',
 		is_uncovered: row[2] === 'TRUE',
-		arrival_time: row[3] || '',
-		departure_time: row[4] || '',
+		arrival_time: normalizeTimeString(row[3] || ''),
+		departure_time: normalizeTimeString(row[4] || ''),
 		last_modified_by: row[5] || '',
 		last_modified_at: row[6] || ''
 	};
