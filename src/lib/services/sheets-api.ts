@@ -324,8 +324,12 @@ async function updateSheetValues(
 	range: string,
 	values: string[][]
 ): Promise<void> {
+	// RAW (not USER_ENTERED) so Sheets stores our strings verbatim instead of
+	// auto-detecting and reformatting them as dates/times/numbers/booleans -
+	// e.g. USER_ENTERED turns "07:00" into a locale-formatted time value that
+	// no longer round-trips as "HH:MM" for <input type="time">.
 	const response = await apiFetch(
-		`${SHEETS_API_BASE}/${spreadsheetId}/values/${encodeURIComponent(range)}?valueInputOption=USER_ENTERED`,
+		`${SHEETS_API_BASE}/${spreadsheetId}/values/${encodeURIComponent(range)}?valueInputOption=RAW`,
 		{
 			method: 'PUT',
 			body: JSON.stringify({ values })

@@ -180,6 +180,35 @@ test.describe('Bus Monitor Sessions', () => {
 		await toggle.getByRole('button', { name: 'AM' }).click();
 		await expect(page.getByTestId('bus-3')).toHaveAttribute('data-status', 'arrived');
 	});
+
+	test('a bus with no expected time for a session is hidden in that session', async ({ page }) => {
+		const sheetData = {
+			...populatedTracker,
+			config: [
+				...populatedTracker.config,
+				{ bus_number: '99', am_expected_arrival_time: '07:30', pm_expected_arrival_time: '' },
+				{ bus_number: '100', am_expected_arrival_time: '', pm_expected_arrival_time: '15:30' }
+			]
+		};
+
+		await signInAsMonitor(page, {
+			email: 'monitor@lincoln.edu',
+			name: 'Bus Monitor',
+			sheetData,
+			view: 'monitor'
+			// defaults to the PM session
+		});
+
+		// PM: the AM-only bus (99) is hidden, the PM-only bus (100) is shown
+		await expect(page.getByTestId('bus-99')).not.toBeVisible();
+		await expect(page.getByTestId('bus-100')).toBeVisible();
+
+		// AM: the reverse
+		const toggle = page.getByTestId('session-toggle');
+		await toggle.getByRole('button', { name: 'AM' }).click();
+		await expect(page.getByTestId('bus-99')).toBeVisible();
+		await expect(page.getByTestId('bus-100')).not.toBeVisible();
+	});
 });
 
 test.describe('Bus Monitor Mobile', () => {
