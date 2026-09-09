@@ -1,6 +1,7 @@
 import { test, expect } from '@playwright/test';
 import { signInAsMonitor } from '../helpers/test-setup';
 import { populatedTracker } from '../fixtures/populated-tracker';
+import { getTodaySessionSheet } from '../helpers/time';
 
 test.describe('Bus Monitor View', () => {
 	test('monitor can see all buses by bus number on a single screen', async ({ page }) => {
@@ -40,6 +41,77 @@ test.describe('Bus Monitor View', () => {
 		await expect(page.getByTestId('bus-3')).toContainText(/\d{1,2}:\d{2}/);
 
 		// Status should change
+		await expect(page.getByTestId('bus-3')).toHaveAttribute('data-status', 'arrived');
+	});
+
+	test('marking a bus arrived survives a background poll response in flight at the same time', async ({
+		page
+	}) => {
+		const mockData = await signInAsMonitor(page, {
+			email: 'monitor@lincoln.edu',
+			name: 'Bus Monitor',
+			sheetData: populatedTracker,
+			view: 'monitor'
+			// defaults to the PM session
+		});
+
+		const sheetName = getTodaySessionSheet('PM');
+		const statusToRows = (buses: (typeof populatedTracker)['sessionData'][string]) =>
+			buses.map((b) => [
+				b.bus_number,
+				b.covered_by,
+				b.is_uncovered ? 'TRUE' : 'FALSE',
+				b.arrival_time,
+				b.departure_time,
+				b.last_modified_by,
+				b.last_modified_at
+			]);
+
+		// Intercept only the plain values.get request for the PM session sheet
+		// (what the background poll's refreshBuses/getBusStatus uses) - not
+		// the initial batchGet load. Snapshot the *current* (pre-arrival) rows
+		// immediately, then delay delivering that snapshot - simulating a
+		// real network round-trip where the read happened before the write,
+		// but the response arrives after it. (Delaying via route.fallback()
+		// instead would let the mock recompute live data at fallback time,
+		// masking the exact race we're testing.)
+		await page.route(
+			`https://sheets.googleapis.com/v4/spreadsheets/${populatedTracker.spreadsheetId}/values/**`,
+			async (route) => {
+				const url = decodeURIComponent(route.request().url());
+				const isPollRequest =
+					route.request().method() === 'GET' &&
+					url.includes(sheetName) &&
+					url.includes('A2:G100');
+				if (!isPollRequest) {
+					await route.fallback();
+					return;
+				}
+				const staleSnapshot = statusToRows(mockData!.sessionData[sheetName] || []);
+				await new Promise((resolve) => setTimeout(resolve, 4000));
+				await route.fulfill({
+					status: 200,
+					contentType: 'application/json',
+					body: JSON.stringify({ range: url, values: staleSnapshot })
+				});
+			}
+		);
+
+		// Bus 3 is pending in the PM fixture
+		await expect(page.getByTestId('bus-3')).toHaveAttribute('data-status', 'pending');
+
+		// Wait for the first poll tick (10s interval) to fire its now-delayed request
+		await page.waitForTimeout(10500);
+
+		// Mark it arrived while that stale request is still in flight
+		await page.getByTestId('bus-3').getByRole('button', { name: /arrived/i }).click();
+		await expect(page.getByTestId('bus-3')).toHaveAttribute('data-status', 'arrived');
+
+		// Wait past when the delayed (now-stale) poll response resolves
+		await page.waitForTimeout(4500);
+
+		// The optimistic update must survive - the stale response predates it
+		// and shouldn't revert the bus back to pending
 		await expect(page.getByTestId('bus-3')).toHaveAttribute('data-status', 'arrived');
 	});
 
@@ -199,15 +271,18 @@ test.describe('Bus Monitor Sessions', () => {
 			// defaults to the PM session
 		});
 
-		// PM: the AM-only bus (99) is hidden, the PM-only bus (100) is shown
+		// PM: the AM-only bus (99) is hidden, the PM-only bus (100) is shown,
+		// and a bus scheduled for both sessions (e.g. bus 1) is still shown
 		await expect(page.getByTestId('bus-99')).not.toBeVisible();
 		await expect(page.getByTestId('bus-100')).toBeVisible();
+		await expect(page.getByTestId('bus-1')).toBeVisible();
 
-		// AM: the reverse
+		// AM: the reverse, and the dual-session bus is visible here too
 		const toggle = page.getByTestId('session-toggle');
 		await toggle.getByRole('button', { name: 'AM' }).click();
 		await expect(page.getByTestId('bus-99')).toBeVisible();
 		await expect(page.getByTestId('bus-100')).not.toBeVisible();
+		await expect(page.getByTestId('bus-1')).toBeVisible();
 	});
 });
 
