@@ -183,9 +183,16 @@ export async function refreshBuses(
 ): Promise<void> {
 	// Don't show loading state for refresh
 	const sess = session;
+	// Snapshot the mutation counter before the network round-trip. If a local
+	// optimistic update (e.g. marking a bus arrived) happens while this fetch
+	// is in flight, this response is now stale relative to it - applying it
+	// would revert the bus to its pre-update status. Skip it; the next poll
+	// tick will pick up the persisted change instead.
+	const versionAtStart = localMutationVersion;
 	try {
 		const statusData = await getBusStatus(spreadsheetId, sess, date);
 		if (sess !== session) return;
+		if (localMutationVersion !== versionAtStart) return;
 		buses = mergeBusData(config, statusData, sess, date);
 		lastUpdated = new Date();
 		error = null;
@@ -196,6 +203,10 @@ export async function refreshBuses(
 
 // Store the spreadsheet ID for adaptive polling restarts
 let currentSpreadsheetId: string | null = null;
+
+// Bumped on every local optimistic update, so an in-flight poll response that
+// started before the update can recognize itself as stale (see refreshBuses).
+let localMutationVersion = 0;
 
 /**
  * Get the currently selected tracking session.
@@ -254,6 +265,7 @@ export function stopPolling(): void {
  * Update a bus in local state (optimistic update).
  */
 export function updateBusLocally(busNumber: string, updates: Partial<BusStatus>): void {
+	localMutationVersion++;
 	buses = buses.map((bus) => {
 		if (bus.bus_number === busNumber) {
 			const updated = { ...bus, ...updates };
