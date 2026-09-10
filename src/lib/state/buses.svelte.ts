@@ -193,7 +193,30 @@ export async function refreshBuses(
 		const statusData = await getBusStatus(spreadsheetId, sess, date);
 		if (sess !== session) return;
 		if (localMutationVersion !== versionAtStart) return;
-		buses = mergeBusData(config, statusData, sess, date);
+
+		// A poll's read can race ahead of an in-flight write: the fetch above
+		// can start (and read pre-write data) *after* an optimistic update was
+		// applied, so the version check above doesn't catch it. For any bus
+		// whose write to the sheet hasn't been confirmed yet, keep the current
+		// local status instead of the freshly-fetched one - otherwise the bus
+		// visibly (and confusingly) reverts to its pre-update status/section
+		// until the next poll tick catches up.
+		const effectiveStatusData = statusData.map((s) => {
+			if (!pendingWrites.has(s.bus_number)) return s;
+			const local = buses.find((b) => b.bus_number === s.bus_number);
+			if (!local) return s;
+			return {
+				bus_number: local.bus_number,
+				covered_by: local.covered_by,
+				is_uncovered: local.is_uncovered,
+				arrival_time: local.arrival_time,
+				departure_time: local.departure_time,
+				last_modified_by: local.last_modified_by,
+				last_modified_at: local.last_modified_at
+			};
+		});
+
+		buses = mergeBusData(config, effectiveStatusData, sess, date);
 		lastUpdated = new Date();
 		error = null;
 	} catch (e) {
@@ -207,6 +230,30 @@ let currentSpreadsheetId: string | null = null;
 // Bumped on every local optimistic update, so an in-flight poll response that
 // started before the update can recognize itself as stale (see refreshBuses).
 let localMutationVersion = 0;
+
+// Bus numbers with an optimistic update whose write to the sheet hasn't been
+// confirmed (succeeded or failed) yet. A poll response is not allowed to
+// overwrite these bus entries - see refreshBuses.
+const pendingWrites = new Set<string>();
+
+/**
+ * Mark a bus as having an in-flight write, so background polling won't
+ * clobber its optimistic local update with pre-write server data. Call this
+ * right after the optimistic updateBusLocally() call, before awaiting the
+ * persist call, and always pair it with endBusMutation() (e.g. in a
+ * try/finally).
+ */
+export function beginBusMutation(busNumber: string): void {
+	pendingWrites.add(busNumber);
+}
+
+/**
+ * Clear the in-flight marker set by beginBusMutation(), once the write has
+ * settled (succeeded or failed).
+ */
+export function endBusMutation(busNumber: string): void {
+	pendingWrites.delete(busNumber);
+}
 
 /**
  * Get the currently selected tracking session.
@@ -399,5 +446,6 @@ export function resetBusState(): void {
 	error = null;
 	lastUpdated = null;
 	session = getCurrentSessionEastern();
+	pendingWrites.clear();
 	clearAllCaches();
 }
