@@ -9,6 +9,8 @@
     startPolling,
     stopPolling,
     updateBusLocally,
+    beginBusMutation,
+    endBusMutation,
     getBusesWithActions,
     getSelectedSession,
   } from "$lib/state/buses.svelte";
@@ -96,6 +98,7 @@
       actionError = null;
       const time = getCurrentTimeEastern();
       updateBusLocally(busNumber, { arrival_time: time });
+      beginBusMutation(busNumber);
       await markBusArrived(sheetId, busNumber, user.email, getSelectedSession());
       successMessage = `Bus ${busNumber} marked as arrived`;
       setTimeout(() => (successMessage = null), 3000);
@@ -106,6 +109,8 @@
       } catch {
         // Ignore reload errors
       }
+    } finally {
+      endBusMutation(busNumber);
     }
   }
 
@@ -117,6 +122,7 @@
       actionError = null;
       const time = getCurrentTimeEastern();
       updateBusLocally(busNumber, { departure_time: time });
+      beginBusMutation(busNumber);
       await markBusDeparted(sheetId, busNumber, user.email, getSelectedSession());
       successMessage = `Bus ${busNumber} marked as departed`;
       setTimeout(() => (successMessage = null), 3000);
@@ -127,6 +133,8 @@
       } catch {
         // Ignore reload errors
       }
+    } finally {
+      endBusMutation(busNumber);
     }
   }
 
@@ -146,6 +154,7 @@
     try {
       actionError = null;
       updateBusLocally(busToUpdate, { covered_by: coveringBusNumber, arrival_time: time });
+      beginBusMutation(busToUpdate);
       await markBusCovered(sheetId, busToUpdate, coveringBusNumber, user.email, getSelectedSession());
       successMessage = `Bus ${busToUpdate} marked as covered by ${coveringBusNumber}`;
       setTimeout(() => (successMessage = null), 3000);
@@ -156,6 +165,8 @@
       } catch {
         // Ignore reload errors
       }
+    } finally {
+      endBusMutation(busToUpdate);
     }
   }
 
@@ -166,6 +177,7 @@
     try {
       actionError = null;
       updateBusLocally(busNumber, { is_uncovered: true });
+      beginBusMutation(busNumber);
       await markBusUncovered(sheetId, busNumber, user.email, getSelectedSession());
       successMessage = `Bus ${busNumber} marked as uncovered`;
       setTimeout(() => (successMessage = null), 3000);
@@ -176,6 +188,8 @@
       } catch {
         // Ignore reload errors
       }
+    } finally {
+      endBusMutation(busNumber);
     }
   }
 
@@ -202,6 +216,7 @@
     try {
       actionError = null;
       updateBusLocally(busToUpdate, updates);
+      beginBusMutation(busToUpdate);
       await updateBusStatus(sheetId, busToUpdate, updates, user.email, getSelectedSession());
       successMessage = "Changes saved";
       setTimeout(() => (successMessage = null), 3000);
@@ -212,6 +227,8 @@
       } catch {
         // Ignore reload errors
       }
+    } finally {
+      endBusMutation(busToUpdate);
     }
   }
 

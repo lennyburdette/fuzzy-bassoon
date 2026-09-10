@@ -115,6 +115,59 @@ test.describe('Bus Monitor View', () => {
 		await expect(page.getByTestId('bus-3')).toHaveAttribute('data-status', 'arrived');
 	});
 
+	test('marking a bus arrived survives a poll tick that lands before the write itself does', async ({
+		page
+	}) => {
+		// This is the sibling race to the "background poll response in flight"
+		// test above, but on the write side instead of the read side: the
+		// poll's *read* can legitimately start and finish entirely *after* the
+		// optimistic update, and still race ahead of the write it's supposed
+		// to be waiting on (e.g. Sheets API latency, flaky school wifi). That
+		// poll reads genuinely-current-at-the-time (but pre-write) server data
+		// and, without protection, overwrites the optimistic "arrived" state
+		// back to "pending" - even though nothing about the mutation was
+		// actually stale. From a monitor's perspective the bus they just
+		// marked arrived visibly disappears from the "Here" section.
+		await signInAsMonitor(page, {
+			email: 'monitor@lincoln.edu',
+			name: 'Bus Monitor',
+			sheetData: populatedTracker,
+			view: 'monitor'
+			// defaults to the PM session
+		});
+
+		const sheetName = getTodaySessionSheet('PM');
+
+		// Delay only the write (PUT) that persists the arrival, so a poll tick
+		// can complete first and read pre-write data.
+		await page.route(
+			`https://sheets.googleapis.com/v4/spreadsheets/${populatedTracker.spreadsheetId}/values/**`,
+			async (route) => {
+				const url = decodeURIComponent(route.request().url());
+				const isWrite = route.request().method() === 'PUT' && url.includes(sheetName);
+				if (!isWrite) {
+					await route.fallback();
+					return;
+				}
+				await new Promise((resolve) => setTimeout(resolve, 11000));
+				await route.fallback();
+			}
+		);
+
+		// Bus 3 is pending in the PM fixture; it runs both AM and PM sessions
+		await expect(page.getByTestId('bus-3')).toHaveAttribute('data-status', 'pending');
+		await page.getByTestId('bus-3').getByRole('button', { name: /arrived/i }).click();
+		await expect(page.getByTestId('bus-3')).toHaveAttribute('data-status', 'arrived');
+
+		// Wait past the first poll tick (10s) - the write is still in flight
+		// (it's delayed 11s) so this poll's read reflects pre-write data
+		await page.waitForTimeout(10500);
+
+		// The bus must still show as arrived: the in-flight write must not be
+		// clobbered by a poll that raced ahead of it
+		await expect(page.getByTestId('bus-3')).toHaveAttribute('data-status', 'arrived');
+	});
+
 	test('monitor can mark a bus as departed with timestamp recorded', async ({ page }) => {
 		await signInAsMonitor(page, {
 			email: 'monitor@lincoln.edu',

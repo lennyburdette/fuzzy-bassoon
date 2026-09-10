@@ -9,6 +9,8 @@
 		startPolling,
 		stopPolling,
 		updateBusLocally,
+		beginBusMutation,
+		endBusMutation,
 		getBusesWithActions,
 		getSelectedSession
 	} from '$lib/state/buses.svelte';
@@ -78,6 +80,7 @@
 			actionError = null;
 			const time = getCurrentTimeEastern();
 			withViewTransition(() => updateBusLocally(busNumber, { arrival_time: time }));
+			beginBusMutation(busNumber);
 			await markBusArrived(sheetId, busNumber, user.email, getSelectedSession());
 		} catch (e) {
 			actionError = e instanceof Error ? e.message : 'Failed to mark arrived';
@@ -86,6 +89,8 @@
 			} catch {
 				// Ignore reload errors
 			}
+		} finally {
+			endBusMutation(busNumber);
 		}
 	}
 
@@ -97,6 +102,7 @@
 			actionError = null;
 			const time = getCurrentTimeEastern();
 			withViewTransition(() => updateBusLocally(busNumber, { departure_time: time }));
+			beginBusMutation(busNumber);
 			await markBusDeparted(sheetId, busNumber, user.email, getSelectedSession());
 		} catch (e) {
 			actionError = e instanceof Error ? e.message : 'Failed to mark departed';
@@ -105,6 +111,8 @@
 			} catch {
 				// Ignore reload errors
 			}
+		} finally {
+			endBusMutation(busNumber);
 		}
 	}
 
@@ -126,6 +134,7 @@
 			withViewTransition(() =>
 				updateBusLocally(busToUpdate, { covered_by: coveringBusNumber })
 			);
+			beginBusMutation(busToUpdate);
 			await markBusCovered(sheetId, busToUpdate, coveringBusNumber, user.email, getSelectedSession());
 		} catch (e) {
 			actionError = e instanceof Error ? e.message : 'Failed to mark covered';
@@ -134,6 +143,8 @@
 			} catch {
 				// Ignore reload errors
 			}
+		} finally {
+			endBusMutation(busToUpdate);
 		}
 	}
 
@@ -160,6 +171,7 @@
 		try {
 			actionError = null;
 			withViewTransition(() => updateBusLocally(busToUpdate, updates));
+			beginBusMutation(busToUpdate);
 			await updateBusStatus(sheetId, busToUpdate, updates, user.email, getSelectedSession());
 		} catch (e) {
 			actionError = e instanceof Error ? e.message : 'Failed to save changes';
@@ -168,6 +180,8 @@
 			} catch {
 				// Ignore reload errors
 			}
+		} finally {
+			endBusMutation(busToUpdate);
 		}
 	}
 </script>
